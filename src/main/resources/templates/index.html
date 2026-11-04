@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新闻列表 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <!-- Bootstrap Icons：替换 emoji 图标，保证跨平台字形一致 -->
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <style>
+        /* 本页仅保留布局规则，视觉基线（配色/圆角/边框/字号）由 theme.css 统一接管 */
+        /* 新闻标题列加宽，长标题自动换行不撑破布局 */
+        .news-table th.col-title { min-width: 420px; }
+        .news-table td.title-cell { min-width: 320px; }
+        .news-table .title-cell a {
+            display: inline-block;
+            word-break: break-word;      /* 长标题自动换行完整显示 */
+            line-height: 1.5;
+        }
+        /* 可排序表头 */
+        .news-table thead .sort-link {
+            text-decoration: none;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        /* 列表 + 右侧筛选面板布局 */
+        .list-layout {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .list-layout .table-responsive { flex: 1 1 auto; min-width: 0; }
+        /* 右侧筛选侧栏：宽度固定、纵向滚动时吸顶跟随 */
+        .filter-sidebar {
+            width: 210px;
+            flex: 0 0 210px;
+            position: sticky;
+            top: 16px;
+        }
+        .filter-sidebar label.filter-opt {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .filter-sidebar label.filter-opt small { margin-left: auto; }
+        .filter-count {
+            display: inline-block;
+            margin-left: 3px;
+            text-align: center;
+        }
+        .filter-sidebar-actions .btn { flex: 1; }
+        /* 窄屏时筛选面板折到表格下方，避免横向挤压 */
+        @media (max-width: 992px) {
+            .list-layout { flex-direction: column; }
+            .filter-sidebar { width: 100%; flex-basis: auto; position: static; }
+        }
+        /* 平板/手机：标题列最小宽度相应收窄，避免横向滚动（外边距已由全局规则处理） */
+        @media (max-width: 1200px) {
+            .news-table th.col-title { min-width: 300px; }
+        }
+        @media (max-width: 576px) {
+            .news-table th.col-title { min-width: 200px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（管理端） -->
+<div th:replace="~{fragments/nav :: navbar('list', false)}"></div>
+
+<div class="main-container container">
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-card-list"></i> 新闻列表</h5>
+
+            <!--
+              列表筛选/排序表单：所有操作都集成在表头
+              - 点击 ID/热度/发布时间 表头：切换升/降序（JS设置隐藏域后提交）
+              - 点击 来源/情感 表头：下拉多选筛选（勾选即提交，支持单个或多个）
+              - 操作表头：批量删除
+            -->
+            <form id="filterForm" th:action="@{/index}" method="get">
+                <!-- 排序与分页隐藏域（默认按发布时间倒序=日期由新到旧、第1页） -->
+                <input type="hidden" name="sortField" id="sortFieldInput" th:value="${sortField}">
+                <input type="hidden" name="sortOrder" id="sortOrderInput" th:value="${sortOrder}">
+                <input type="hidden" name="pageNum" id="pageNumInput" value="1">
+                <!-- 当前选中的新闻分类（单选：空值=全部分类，后端自动忽略空串） -->
+                <input type="hidden" name="categories" id="categoryInput"
+                       th:value="${selectedCategories != null && !selectedCategories.isEmpty() ? selectedCategories[0] : ''}">
+
+                <!-- 分类单选标签栏（位于列表上方，点击即切换并刷新列表）
+                     分类值通过 data-cat 传递，JS事件委托读取（Thymeleaf禁止在onclick中内插字符串变量） -->
+                <div class="category-tabs" id="categoryTabs" role="tablist" aria-label="新闻分类">
+                    <button type="button" class="category-tab" data-cat=""
+                            th:classappend="${selectedCategories == null || selectedCategories.isEmpty()} ? 'active'">全部</button>
+                    <button type="button" class="category-tab"
+                            th:each="c : ${categoryOptions}"
+                            th:text="${c}"
+                            th:attr="data-cat=${c}"
+                            th:classappend="${selectedCategories != null && selectedCategories.contains(c)} ? 'active'">财经</button>
+                </div>
+
+                <!-- 工具条：总条数 + 批量操作（原先是挤在表头里的一颗红按钮，视觉噪音很大） -->
+                <div class="list-toolbar">
+                    <span class="toolbar-hint">共 <span th:text="${page.total}">0</span> 条</span>
+                    <span class="toolbar-spacer"></span>
+                    <span class="toolbar-hint" id="batchHint">已选 0 条</span>
+                    <button type="button" class="btn btn-outline-danger btn-sm"
+                            id="batchDelBtn" onclick="batchDel()">
+                        <i class="bi bi-trash"></i> 批量删除
+                    </button>
+                </div>
+
+                <!-- 列表区：左侧数据表格 + 右侧筛选面板 -->
+                <div class="list-layout">
+                <!-- 数据表格 -->
+                <div class="table-responsive">
+                    <table class="table table-hover news-table align-middle">
+                        <thead>
+                        <tr>
+                            <!-- ID：点击切换升/降序（默认升序） -->
+                            <th width="56">
+                                <span class="sort-link" onclick="setSort('id')">
+                                    ID<span class="sort-arrow" th:if="${sortField == 'id'}"
+                                          th:text="${sortOrder == 'asc' ? ' ↑' : ' ↓'}"> ↑</span>
+                                </span>
+                            </th>
+
+                            <th class="col-title">新闻标题</th>
+
+                            <!-- 来源/分类/情感仅作列标题；多选筛选已移至列表右侧面板 -->
+                            <th width="110">来源</th>
+                            <th width="90">分类</th>
+                            <th width="90">情感</th>
+
+                            <!-- 热度：点击切换升/降序 -->
+                            <th width="90">
+                                <span class="sort-link" onclick="setSort('hot_score')">
+                                    热度<span class="sort-arrow" th:if="${sortField == 'hot_score'}"
+                                          th:text="${sortOrder == 'asc' ? ' ↑' : ' ↓'}"> ↓</span>
+                                </span>
+                            </th>
+
+                            <!-- 发布时间：点击切换升/降序 -->
+                            <th width="160">
+                                <span class="sort-link" onclick="setSort('publish_time')">
+                                    发布时间<span class="sort-arrow" th:if="${sortField == 'publish_time'}"
+                                          th:text="${sortOrder == 'asc' ? ' ↑' : ' ↓'}"> ↓</span>
+                                </span>
+                            </th>
+
+                            <th width="150">入库时间</th>
+
+                            <!-- 操作列：单行删除入口（批量操作已移至表格上方工具条） -->
+                            <th width="64" class="text-center">操作</th>
+
+                            <!-- 选择列（移至列表最右侧）：表头为全选/取消全选 -->
+                            <th width="48" class="text-center" title="全选/取消全选本页">
+                                <input type="checkbox" id="checkAll">
+                            </th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="news, iterStat : ${page.rows}">
+                            <!-- 展示用连续序号（按当前排序从1递增，与主键解耦），删除/勾选仍使用真实ID -->
+                            <td th:text="${iterStat.count + (page.pageNum - 1) * page.pageSize}"></td>
+                            <td class="title-cell">
+                                <!-- 点击标题跳转到新闻原始页面（新标签页），无原始URL时显示纯文本 -->
+                                <a th:if="${news.url != null and !news.url.isEmpty()}"
+                                   th:href="${news.url}" target="_blank" rel="noopener noreferrer"
+                                   th:text="${news.title}"></a>
+                                <span th:if="${news.url == null or news.url.isEmpty()}"
+                                      th:text="${news.title}"></span>
+                                <!-- TextRank 抽取式摘要：标题下方小字展示（截断至60字并单行省略，控制页面体积） -->
+                                <div class="news-summary text-muted small mt-1"
+                                     th:if="${news.summary != null and !news.summary.isEmpty()}"
+                                     th:text="${#strings.abbreviate(news.summary, 60)}"></div>
+                            </td>
+                            <td><span class="source-tag" th:text="${news.source}"></span></td>
+                            <td>
+                                <span class="category-tag"
+                                      th:text="${news.category != null ? news.category : '社会'}">社会</span>
+                            </td>
+                            <td>
+                                <span th:if="${news.sentiment == 1}" class="sentiment-pos">正面</span>
+                                <span th:if="${news.sentiment == 0}" class="sentiment-neu">中性</span>
+                                <span th:if="${news.sentiment == -1}" class="sentiment-neg">负面</span>
+                            </td>
+                            <td>
+                                <!-- 热度用文字色区分强弱，不再用四色胶囊 -->
+                                <span class="hot-badge"
+                                      th:classappend="${news.hotScore >= 80} ? 'hot-hi' : (${news.hotScore >= 60} ? 'hot-mid' : '')"
+                                      th:text="${news.hotScore}">0</span>
+                            </td>
+                            <td th:text="${#temporals.format(news.publishTime, 'yyyy-MM-dd HH:mm')}"></td>
+                            <td th:text="${#temporals.format(news.createTime, 'MM-dd HH:mm')}"></td>
+                            <td class="text-center">
+                                <button type="button" class="btn-link-danger"
+                                        th:onclick="'confirmDel(' + ${news.id} + ')'">删除</button>
+                            </td>
+                            <!-- 行选择框（移至列表最右侧） -->
+                            <td class="text-center">
+                                <input type="checkbox" class="row-check" th:value="${news.id}"
+                                       th:title="'选择ID ' + ${news.id}">
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(page.rows)}">
+                            <td colspan="9" class="text-center text-muted py-5">
+                                <i class="bi bi-inbox"></i> 暂无符合筛选条件的新闻数据
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 右侧筛选面板：来源多选 + 情感多选（勾选后点"应用筛选"提交） -->
+                <aside class="filter-sidebar">
+                    <div class="filter-sidebar-card">
+                        <h6><i class="bi bi-search"></i> 批量筛选</h6>
+
+                        <!-- 来源：可勾选单个或多个新闻网站 -->
+                        <div class="filter-group-label">
+                            来源
+                            <span class="filter-count"
+                                  th:if="${!#lists.isEmpty(selectedSources)}"
+                                  th:text="${selectedSources.size()}">1</span>
+                        </div>
+                        <div class="filter-option-list">
+                            <label class="filter-opt" th:each="s : ${sourceOptions}">
+                                <input type="checkbox" class="form-check-input source-check"
+                                       name="sources" th:value="${s.source}"
+                                       th:checked="${selectedSources.contains(s.source)}">
+                                <span th:text="${s.source}">新浪新闻</span>
+                                <small th:text="${s.cnt}">5</small>
+                            </label>
+                        </div>
+
+                        <!-- 注：分类筛选已改为列表上方的单选标签栏 -->
+
+                        <!-- 情感：可勾选一个或多个情感类型 -->
+                        <div class="filter-group-label">
+                            情感
+                            <span class="filter-count"
+                                  th:if="${!#lists.isEmpty(selectedSentiments)}"
+                                  th:text="${selectedSentiments.size()}">1</span>
+                        </div>
+                        <div>
+                            <label class="filter-opt">
+                                <input type="checkbox" class="form-check-input sentiment-check"
+                                       name="sentiments" value="1"
+                                       th:checked="${selectedSentiments.contains(1)}"> 正面
+                            </label>
+                            <label class="filter-opt">
+                                <input type="checkbox" class="form-check-input sentiment-check"
+                                       name="sentiments" value="0"
+                                       th:checked="${selectedSentiments.contains(0)}"> 中性
+                            </label>
+                            <label class="filter-opt">
+                                <input type="checkbox" class="form-check-input sentiment-check"
+                                       name="sentiments" value="-1"
+                                       th:checked="${selectedSentiments.contains(-1)}"> 负面
+                            </label>
+                        </div>
+
+                        <div class="filter-sidebar-actions">
+                            <button type="button" class="btn btn-primary btn-sm"
+                                    onclick="applyFilter()">应用筛选</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                    onclick="clearAllFilters()">清空</button>
+                        </div>
+                    </div>
+                </aside>
+                </div>
+                <!-- /.list-layout -->
+
+                <!-- 总条数已移至表格上方工具条，页脚不再重复 -->
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+// ===== 表头排序：点击同一表头翻转升/降序；点击其他表头默认升序 =====
+function setSort(field) {
+    var curField = document.getElementById('sortFieldInput').value;
+    var curOrder = document.getElementById('sortOrderInput').value;
+    var newOrder;
+    if (field === curField) {
+        newOrder = (curOrder === 'asc') ? 'desc' : 'asc';
+    } else {
+        // 新切换的字段默认升序（ID升序为系统默认）
+        newOrder = 'asc';
+    }
+    document.getElementById('sortFieldInput').value = field;
+    document.getElementById('sortOrderInput').value = newOrder;
+    document.getElementById('pageNumInput').value = '1';
+    document.getElementById('filterForm').submit();
+}
+
+// ===== 表头下拉多选筛选：勾选/取消后立即提交 =====
+function applyFilter() {
+    document.getElementById('pageNumInput').value = '1';
+    document.getElementById('filterForm').submit();
+}
+
+// ===== 分类单选标签：点击后写入隐藏域并立即提交，同一分类再次点击不重复提交 =====
+// 事件委托：从被点标签的 data-cat 读取分类值（全部为空串）
+$('#categoryTabs').on('click', '.category-tab', function () {
+    selectCategory($(this).data('cat') || '');
+});
+
+function selectCategory(category) {
+    var input = document.getElementById('categoryInput');
+    if (input.value === category) {
+        return; // 已选中该分类，无需刷新
+    }
+    input.value = category;
+    document.getElementById('pageNumInput').value = '1';
+    document.getElementById('filterForm').submit();
+}
+
+// 清空全部筛选（分类标签恢复"全部" + 来源/情感取消勾选）并提交
+function clearAllFilters() {
+    $('.source-check, .sentiment-check').prop('checked', false);
+    document.getElementById('categoryInput').value = '';
+    applyFilter();
+}
+
+// ===== 翻页已取消：全部新闻一次性展示 =====
+
+function confirmDel(id) {
+    confirmDelete("/api/news/delete", id);
+}
+
+// ===== 批量删除 =====
+function refreshBatchHint() {
+    var n = $('.row-check:checked').length;
+    $('#batchHint').text('已选 ' + n + ' 条');
+    var total = $('.row-check').length;
+    $('#checkAll').prop('checked', total > 0 && n === total);
+    $('#checkAll').prop('indeterminate', n > 0 && n < total);
+}
+$('#checkAll').on('change', function () {
+    $('.row-check').prop('checked', this.checked);
+    refreshBatchHint();
+});
+$(document).on('change', '.row-check', refreshBatchHint);
+
+function batchDel() {
+    var ids = [];
+    $('.row-check:checked').each(function () { ids.push($(this).val()); });
+    if (ids.length === 0) {
+        alert('请先勾选要删除的新闻');
+        return;
+    }
+    if (!confirm('确认删除选中的 ' + ids.length + ' 条新闻？此操作不可撤销！')) return;
+    ajaxRequest('/api/news/deleteBatch', {ids: ids.join(',')}, 'POST', function () {
+        alert('批量删除成功');
+        // 删除后刷新列表并保持当前筛选/排序
+        document.getElementById('pageNumInput').value = '1';
+        document.getElementById('filterForm').submit();
+    });
+}
+</script>
+</body>
+</html>

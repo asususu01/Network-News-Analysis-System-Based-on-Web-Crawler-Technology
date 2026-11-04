@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.newssystem.mapper.HotWordMapper">
+
+    <resultMap id="BaseResultMap" type="com.newssystem.entity.HotWord">
+        <id column="id" property="id" />
+        <result column="word" property="word" />
+        <result column="frequency" property="frequency" />
+        <result column="stat_date" property="statDate" />
+        <result column="create_time" property="createTime" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, word, frequency, stat_date, create_time
+    </sql>
+
+</mapper>

@@ -1,0 +1,134 @@
+# ================================================================
+# 基于网络爬虫技术的网络新闻分析系统 - 核心配置文件
+# ================================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# ================================================================
+# Spring基础配置
+# ================================================================
+spring:
+  application:
+    name: news-system
+
+  # 数据源配置（请根据本机MySQL修改用户名和密码）
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/news_system?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: "123456"
+    # Druid连接池配置
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1 FROM DUAL
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+
+  # Thymeleaf模板引擎配置
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding: UTF-8
+    cache: false           # 开发阶段关闭缓存
+    servlet:
+      content-type: text/html
+
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+  # JSON时间格式
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+# ================================================================
+# MyBatis-Plus配置
+# ================================================================
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml,classpath*:com/newssystem/mapper/xml/*.xml
+  type-aliases-package: com.newssystem.entity
+  configuration:
+    map-underscore-to-camel-case: true    # 驼峰命名映射
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 控制台打印SQL
+  global-config:
+    db-config:
+      id-type: auto                       # 主键自增
+      logic-delete-field: deleted         # 逻辑删除字段（本项目未使用）
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ================================================================
+# 爬虫模块配置（重要：可根据需要修改）
+# ================================================================
+crawler:
+  # 是否启用定时爬虫任务（true=项目启动后自动按cron爬取；false=仅允许手动启动）
+  scheduled-enabled: false
+  # 定时任务cron：默认每30分钟执行一次（0 0/30 * * * ?）
+  cron: "0 0 */2 * * ?"
+  # 爬虫种子URL列表（公开新闻门户首页或频道页；仅选择服务端渲染(SSR)、静态HTML可解析的站点）
+  # 说明：news.qq.com 已移除——腾讯新闻全站为JS动态渲染，纯Jsoup无法解析文章链接；
+  #       改用搜狐新闻频道；网易使用 news.163.com（www.163.com/news/ 会301跳转至门户首页）
+  # 注意：必须使用逗号分隔的单行形式，@Value 才能绑定到 List<String>（YAML列表语法不会被@Value解析）
+  seed-urls: "https://news.sina.com.cn/,https://news.163.com/,https://news.sohu.com/"
+  # 爬取线程数
+  thread-count: 5
+  # 每个种子网站单次任务最多爬取多少条新闻（各站点独立配额，默认每站5条；
+  # 定时任务使用此默认值，手动任务可在"爬虫管理"页下拉选择5/10/20/30/40/50条）
+  max-news-per-site: 5
+  # 单次任务抓取页面总数的全局安全上限（防止无限爬）
+  max-news-per-task: 100
+  # 请求间隔（毫秒），防止被封：每请求一个页面随机 sleep 500~1500ms
+  request-delay-min: 500
+  request-delay-max: 1500
+  # 连接超时（毫秒）
+  connection-timeout: 10000
+  # 读取超时（毫秒）
+  socket-timeout: 20000
+  # 连接池最大连接数
+  max-total: 50
+  default-max-per-route: 10
+
+# ================================================================
+# 分词与热词分析配置
+# ================================================================
+analyzer:
+  # 热词TopN：每次统计频率最高的前N个入库
+  hot-word-top-n: 50
+  # 过滤长度：小于该长度的词语不计入热词（去掉"的"、"了"等单字停用词）
+  min-word-length: 2
+  # 是否每次爬完新闻自动触发分词+热词入库
+  auto-analyze-after-crawl: true
+
+# ================================================================
+# 日志配置
+# ================================================================
+logging:
+  level:
+    root: INFO
+    com.newssystem: DEBUG
+    com.newssystem.crawler: DEBUG
+    com.newssystem.analyzer: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  # 不配置 logging.file.name：日志只输出到控制台，启动时不会在项目根目录创建 logs/ 文件夹。
+  # 如需落盘，取消下面两行注释即可（会自动创建 logs 目录并按天+10MB 滚动）。
+  # file:
+  #   name: logs/news-system.log

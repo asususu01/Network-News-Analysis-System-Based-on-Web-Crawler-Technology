@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <!-- 用户表格 / 用户名链接 / 性别与行为标签 / 日志时间线样式均由 theme.css 统一提供 -->
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（管理端） -->
+<div th:replace="~{fragments/nav :: navbar('user', false)}"></div>
+
+<div class="main-container container">
+
+    <div class="card mb-3">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-people"></i> 用户管理</h5>
+            <span class="text-muted small">已注册用户：<strong th:text="${userCount}">0</strong> 人
+                （点击用户名称可查看该用户的操作日志）</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle user-table">
+                    <thead>
+                    <tr>
+                        <th width="60">ID</th>
+                        <th width="140">用户名（点击看日志）</th>
+                        <th width="70">年龄</th>
+                        <th width="80">性别</th>
+                        <th width="140">职业</th>
+                        <th width="160">注册时间</th>
+                        <th width="160">最近更新</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="u : ${users}">
+                        <td th:text="${u.id}">1</td>
+                        <td>
+                            <!-- 点击用户名：弹出该用户的行为日志 -->
+                            <a class="user-name-link" href="javascript:void(0);"
+                               th:attr="data-user-id=${u.id},data-username=${u.username}"
+                               th:text="${u.username}">用户名</a>
+                        </td>
+                        <td th:text="${u.age != null ? u.age : '-'}">-</td>
+                        <td>
+                            <span class="gender-badge gender-male" th:if="${u.gender == 1}">男</span>
+                            <span class="gender-badge gender-female" th:if="${u.gender == 2}">女</span>
+                            <span class="gender-badge gender-secret"
+                                  th:if="${u.gender == null or u.gender == 0}">保密</span>
+                        </td>
+                        <td th:text="${u.occupation != null and !u.occupation.isEmpty()} ? ${u.occupation} : '未填写'">未填写</td>
+                        <td th:text="${u.createTime != null} ? ${#temporals.format(u.createTime, 'yyyy-MM-dd HH:mm')} : '-'">-</td>
+                        <td th:text="${u.updateTime != null} ? ${#temporals.format(u.updateTime, 'yyyy-MM-dd HH:mm')} : '-'">-</td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(users)}">
+                        <td colspan="7" class="text-center text-muted py-5"><i class="bi bi-inbox"></i> 暂无注册用户</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 用户行为日志弹窗（页面居中） -->
+<div class="modal fade" id="userLogModal" tabindex="-1" aria-labelledby="userLogModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="userLogModalLabel">用户操作日志</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table table-bordered log-table mb-0">
+                    <thead>
+                    <tr>
+                        <th width="150">发生时间</th>
+                        <th width="120">行为类型</th>
+                        <th>详情</th>
+                        <th width="130">操作IP</th>
+                    </tr>
+                    </thead>
+                    <tbody id="userLogTbody">
+                    <!-- AJAX 动态填充 -->
+                    </tbody>
+                </table>
+                <div id="userLogEmpty" class="log-empty" style="display:none;">该用户暂无操作日志</div>
+                <div id="userLogLoading" class="log-empty">日志加载中…</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+$(function () {
+    // 点击用户名：加载该用户日志并弹出模态框（事件委托，页面仅一个弹窗实例）
+    $('.user-table').on('click', '.user-name-link', function () {
+        var userId = $(this).data('user-id');
+        var username = $(this).data('username');
+
+        $('#userLogModalLabel').text('用户「' + username + '」的操作日志');
+        $('#userLogTbody').empty();
+        $('#userLogEmpty').hide();
+        $('#userLogLoading').show();
+
+        // getOrCreateInstance 避免同一弹窗元素重复new产生多个Modal实例
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('userLogModal')).show();
+
+        ajaxRequest('/admin/users/logs', {userId: userId}, 'GET', function (logs) {
+            $('#userLogLoading').hide();
+            renderLogs(logs || []);
+        }, function (msg) {
+            $('#userLogLoading').hide();
+            $('#userLogEmpty').text('日志加载失败：' + msg).show();
+        });
+    });
+
+    // 将后端日志数组渲染到弹窗表格
+    function renderLogs(logs) {
+        if (!logs.length) {
+            $('#userLogEmpty').text('该用户暂无操作日志').show();
+            return;
+        }
+        var html = '';
+        logs.forEach(function (item) {
+            html += '<tr>'
+                + '<td>' + escapeHtml(formatDateTime(item.createTime)) + '</td>'
+                + '<td>' + actionTag(item.action) + '</td>'
+                + '<td>' + escapeHtml(item.detail || '-') + '</td>'
+                + '<td>' + escapeHtml(item.ip || '-') + '</td>'
+                + '</tr>';
+        });
+        $('#userLogTbody').html(html);
+    }
+
+    // 行为类型 -> 彩色标签
+    function actionTag(action) {
+        var cls = 'act-logout';
+        if (action === '注册') cls = 'act-register';
+        else if (action === '登录') cls = 'act-login';
+        else if (action === '修改个人信息') cls = 'act-profile';
+        else if (action === '浏览新闻') cls = 'act-view';
+        return '<span class="action-tag ' + cls + '">' + escapeHtml(action || '-') + '</span>';
+    }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+</head>
+<body class="auth-body">
+
+<div class="auth-card">
+    <div class="auth-mark"><i class="bi bi-newspaper"></i></div>
+    <h1 class="auth-title">网络新闻分析系统</h1>
+    <p class="auth-sub">登录管理端，查看采集数据与分析结果</p>
+
+    <!-- 错误提示 -->
+    <div th:if="${errorMsg}" class="alert alert-danger mb-3" role="alert">
+        <span th:text="${errorMsg}"></span>
+    </div>
+    <!-- 成功提示（如注册成功） -->
+    <div th:if="${successMsg}" class="alert alert-success mb-3" role="alert">
+        <span th:text="${successMsg}"></span>
+    </div>
+
+    <!-- 统一登录表单：提交到 /doLogin，后端自动判定管理员/用户并跳转对应端 -->
+    <form th:action="@{/doLogin}" method="post" autocomplete="off">
+        <div class="mb-3">
+            <label class="form-label" for="usernameInput">账号</label>
+            <input type="text" name="username" id="usernameInput" class="form-control" required
+                   th:value="${username}" placeholder="请输入账号">
+        </div>
+        <div class="mb-4">
+            <label class="form-label" for="passwordInput">密码</label>
+            <div class="input-group">
+                <input type="password" name="password" id="passwordInput" class="form-control" required
+                       placeholder="请输入密码">
+                <button type="button" class="btn password-toggle"
+                        id="togglePassword" title="显示/隐藏密码" aria-label="显示或隐藏密码">
+                    <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                         viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 3C4.7 3 2.1 5.3 1 8c1.1 2.7 3.7 5 7 5s5.9-2.3 7-5c-1.1-2.7-3.7-5-7-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit">登录</button>
+    </form>
+
+    <div class="auth-links">
+        <p>游客无需登录，可直接<a th:href="@{/client}">浏览新闻</a></p>
+        <p><a th:href="@{/user/register}">注册普通用户</a><span class="auth-muted">·</span>登录后可记录浏览足迹</p>
+    </div>
+</div>
+
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script>
+    // 密码可见切换
+    (function () {
+        var pwd = document.getElementById('passwordInput');
+        var btn = document.getElementById('togglePassword');
+        var icon = document.getElementById('eyeIcon');
+        var OPEN = 'M8 3C4.7 3 2.1 5.3 1 8c1.1 2.7 3.7 5 7 5s5.9-2.3 7-5c-1.1-2.7-3.7-5-7-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z';
+        var SLASH = 'M8 3c1.9 0 3.6.5 5.1 1.4l.9-1.4.8.5-1 1.5C15.1 5.9 15.9 7 16 8c-1.1 2.7-3.7 5-7 5-1.9 0-3.6-.5-5.1-1.4l-1 1.5-.8-.5 1-1.5C1.4 10.1.4 8.6 0 8c1.1-2.7 3.7-5 8-5z' +
+                     'M10.5 5.6 5.9 10.2A3.3 3.3 0 1 0 10.5 5.6zM8 4.7a3.3 3.3 0 0 1 3.3 3.3c0 .6-.2 1.2-.4 1.7L6.3 12.3A3.3 3.3 0 0 1 8 4.7z';
+        btn.addEventListener('click', function () {
+            var hidden = pwd.type === 'password';
+            pwd.type = hidden ? 'text' : 'password';
+            icon.querySelector('path').setAttribute('d', hidden ? SLASH : OPEN);
+            btn.classList.toggle('active', hidden);
+            pwd.focus();
+        });
+    })();
+</script>
+</body>
+</html>

@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爬虫管理 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <style>
+        /* 颜色/圆角/阴影/字号由 theme.css 接管，此处仅保留下拉组件的布局 */
+        .site-multiselect {
+            position: relative;
+            width: 300px;
+            vertical-align: middle;
+        }
+        .site-ms-button {
+            width: 100%;
+            text-align: left;
+            background: #fff;
+            border: 1px solid var(--line-2);
+            padding: .375rem 2rem .375rem .75rem;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23666' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right .6rem center;
+            background-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .site-ms-button:disabled {
+            background-color: #eef0f2;
+        }
+        .site-ms-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            z-index: 1050;
+            width: 100%;
+            min-width: 280px;
+            background: #fff;
+            border: 1px solid var(--line);
+            padding: 6px 0;
+        }
+        .site-multiselect.open .site-ms-panel {
+            display: block;
+        }
+        .site-ms-toolbar {
+            padding: 4px 12px 8px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 4px;
+        }
+        .site-ms-options {
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .site-ms-option {
+            display: flex;
+            align-items: center;
+            padding: 6px 12px;
+            margin: 0;
+            font-weight: normal;
+            cursor: pointer;
+        }
+        .site-ms-option input {
+            margin-top: 0;
+        }
+        .site-ms-empty {
+            padding: 14px 12px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（管理端） -->
+<div th:replace="~{fragments/nav :: navbar('crawler', false)}"></div>
+
+<div class="main-container container">
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-router"></i> 爬虫任务控制</h5>
+
+            <div class="row align-items-center mb-3">
+                <div class="col-md-6">
+                    <div>
+                        <span style="font-size:16px;">运行状态：&nbsp;&nbsp;</span>
+                        <span id="statusBadge" class="status-badge status-stopped">● 已停止</span>
+                        &nbsp;&nbsp;&nbsp;
+                        <span id="triggerType" class="text-muted"></span>
+                    </div>
+                </div>
+                <div class="col-md-6 text-end">
+                    <!-- 每站爬取数量设置：最小5条，最大50条，各种子站点独立配额 -->
+                    <label for="crawlCount" class="me-1 mb-0" style="font-size:15px;">每站爬取数量：</label>
+                    <select id="crawlCount" class="form-select d-inline-block me-3" style="width:90px;">
+                        <option value="5" selected>5 条</option>
+                        <option value="10">10 条</option>
+                        <option value="20">20 条</option>
+                        <option value="30">30 条</option>
+                        <option value="40">40 条</option>
+                        <option value="50">50 条</option>
+                    </select>
+                    <button id="btnStart" class="btn btn-success me-2" onclick="startCrawler()">启动爬虫</button>
+                    <button id="btnStop" class="btn btn-danger me-2" onclick="stopCrawler()" disabled>停止爬虫</button>
+                    <a th:href="@{/index}" class="btn btn-outline-secondary"><i class="bi bi-newspaper"></i> 查看采集结果</a>
+                </div>
+            </div>
+
+            <!-- 爬取网站多选 + 自定义站点维护 -->
+            <div class="row align-items-center site-select-row mb-3">
+                <div class="col-md-12">
+                    <label class="me-2 mb-0" style="font-size:15px;"><i class="bi bi-globe2"></i> 爬取网站：</label>
+                    <!-- 多选下拉：复选框勾选要爬取的网站，默认全选；点击框体展开/收起 -->
+                    <div class="site-multiselect d-inline-block align-middle me-2" id="siteMultiSelect">
+                        <button type="button" class="site-ms-button" id="siteMsButton">全部站点</button>
+                        <div class="site-ms-panel" id="siteMsPanel">
+                            <div class="site-ms-toolbar">
+                                <a href="javascript:void(0);" onclick="setAllSitesChecked(true)">全选</a>
+                                <a href="javascript:void(0);" class="ms-3" onclick="setAllSitesChecked(false)">清空</a>
+                                <span class="float-end text-muted small" id="siteMsCount"></span>
+                            </div>
+                            <div class="site-ms-options" id="siteMsOptions">
+                                <label class="site-ms-option" th:each="s : ${sites}" th:title="${s.url}">
+                                    <input type="checkbox" class="form-check-input me-1 site-check"
+                                           th:value="${s.id}" th:attr="data-site-name=${s.name},data-builtin=${s.isBuiltin}" checked>
+                                    <span th:text="${s.name} + (${s.isBuiltin == 1} ? '（内置）' : '（自定义）')">站点名称</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="openAddSiteModal()"><i class="bi bi-plus-lg"></i> 添加网站</button>
+                    <button id="btnDeleteSite" class="btn btn-sm btn-outline-danger" onclick="deleteSelectedSites()"><i class="bi bi-trash"></i> 删除选中网站</button>
+                    <span class="text-muted small ms-2"><i class="bi bi-lightbulb"></i> 可同时勾选多个网站一起爬取；全部勾选即爬取所有网站</span>
+                </div>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="row g-3 mb-3">
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num" id="totalCount">0</div>
+                    <div class="stat-label">总URL数</div>
+                </div></div>
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num text-success" id="successCount">0</div>
+                    <div class="stat-label">成功入库</div>
+                </div></div>
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num text-danger" id="failCount">0</div>
+                    <div class="stat-label">抓取失败</div>
+                </div></div>
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num text-warning" id="dupCount">0</div>
+                    <div class="stat-label">重复过滤</div>
+                </div></div>
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num text-info" id="elapsedSec">0</div>
+                    <div class="stat-label">运行(秒)</div>
+                </div></div>
+                <div class="col-md-2"><div class="stat-card">
+                    <div class="stat-num" id="startTime">-</div>
+                    <div class="stat-label">开始时间</div>
+                </div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-terminal"></i> 实时运行日志</h5>
+            <div id="logBox" class="log-box">系统就绪，等待爬虫任务启动...</div>
+            <div class="mt-2 text-muted small">
+                <i class="bi bi-lightbulb"></i> 提示：可在上方选择爬取网站与每个站点的爬取数量（5~50条，各站点独立配额）；也可添加/删除爬取网站。爬虫启动后会自动刷新日志。反爬策略：随机User-Agent、请求间隔500~1500ms、URL哈希+数据库唯一索引双重去重。
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- 添加爬取网站弹窗（页面居中） -->
+<div class="modal fade" id="addSiteModal" tabindex="-1" aria-labelledby="addSiteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addSiteModalLabel"><i class="bi bi-plus-lg"></i> 添加爬取网站</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="newSiteName" class="form-label">网站名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="newSiteName" maxlength="50"
+                           placeholder="例如：凤凰新闻（1~50个字符，不可与已有站点重名）">
+                </div>
+                <div class="mb-3">
+                    <label for="newSiteUrl" class="form-label">网站网址 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="newSiteUrl" maxlength="255"
+                           placeholder="例如：https://news.ifeng.com/（新闻频道首页地址）">
+                    <div class="form-text">需为 http/https 开头的合法网址；未填写协议时将自动补全 https://</div>
+                </div>
+                <div id="addSiteError" class="alert alert-danger py-2 mb-0" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="submitAddSite()">确认添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 爬取失败提示弹窗（任务结束后若存在入库量为0的站点自动弹出） -->
+<div class="modal fade" id="crawlFailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg" style="z-index: 1060;">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" style="font-weight:600;"><i class="bi bi-exclamation-triangle"></i> 爬取失败提示</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body" id="crawlFailModalBody">
+                <!-- JS 动态渲染失败站点列表 -->
+            </div>
+            <div class="modal-footer">
+                <a href="https://news.sina.com.cn/" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary me-auto">查看推荐静态新闻站点</a>
+                <button type="button" class="btn btn-sm btn-link text-muted" onclick="failureModalSuppressed=true; bootstrap.Modal.getInstance(document.getElementById('crawlFailModal')).hide();" title="本次浏览器会话内不再自动弹出此提示"><i class="bi bi-bell-slash"></i> 本次会话不再提醒</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="refreshSiteSelect(null); bootstrap.Modal.getInstance(document.getElementById('crawlFailModal')).hide();">去调整网站后重试</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+var timer = null;
+// 检测 running true→false 的过渡，用于任务刚结束的瞬时动作（如失败弹窗）
+var prevRunningState = null;
+// 本次任务是否已弹出过失败提示（防止后续轮询重复弹出，每次 startCrawler 重置）
+var failureModalShownThisTask = false;
+// 本次浏览器会话是否不再自动弹出失败提示（用户在弹窗上点"本次会话不再提醒"时置 true）
+var failureModalSuppressed = false;
+
+$(function () {
+    loadStatus();
+    // 3秒自动刷一次
+    timer = setInterval(loadStatus, 3000);
+
+    // 多选下拉：点击框体展开/收起；点击面板内部不关闭；点击外部关闭
+    $("#siteMsButton").on("click", function (e) {
+        if ($(this).prop("disabled")) return;
+        e.stopPropagation();
+        $("#siteMultiSelect").toggleClass("open");
+    });
+    $("#siteMsPanel").on("click", function (e) {
+        e.stopPropagation();
+    });
+    $(document).on("click", function () {
+        $("#siteMultiSelect").removeClass("open");
+    });
+
+    // 复选框勾选变化：刷新按钮摘要 + 删除按钮可用性（事件委托，重建选项后仍生效）
+    $("#siteMsOptions").on("change", ".site-check", function () {
+        updateSiteSummary();
+    });
+
+    updateSiteSummary();
+});
+
+function loadStatus() {
+    ajaxRequest("/crawler/status", {}, "GET", function (data) {
+        var running = !!data.running;
+        $("#statusBadge").removeClass("status-running status-stopped")
+            .addClass(running ? "status-running" : "status-stopped")
+            .html(running ? "● 运行中" : "● 已停止");
+        $("#triggerType").html(data.triggerType ? ("触发方式：" + data.triggerType) : "");
+        $("#btnStart").prop("disabled", running);
+        $("#btnStop").prop("disabled", !running);
+        // 任务运行期间禁止修改爬取数量与站点配置
+        $("#crawlCount").prop("disabled", running);
+        $("#siteMsButton").prop("disabled", running);
+        $(".site-check").prop("disabled", running);
+        $("button[onclick='openAddSiteModal()']").prop("disabled", running);
+        // 删除按钮：未运行且至少勾选一个站点时可用
+        $("#btnDeleteSite").prop("disabled", running || getCheckedSites().length === 0);
+
+        $("#totalCount").text(data.totalCount || 0);
+        $("#successCount").text(data.successCount || 0);
+        $("#failCount").text(data.failCount || 0);
+        $("#dupCount").text(data.duplicateCount || 0);
+        $("#elapsedSec").text(data.elapsedSeconds || 0);
+        $("#startTime").text(data.startTime ? data.startTime.substring(11, 19) : "-");
+
+        if (data.logs) {
+            $("#logBox").text(data.logs);
+            // 自动滚动到底部
+            var box = $("#logBox")[0];
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // ----- 任务结束过渡检测：running true→false 时触发 -----
+        // 首次进入页面 prevRunningState=null，跳过过渡检测，避免首次轮询误弹
+        if (prevRunningState === true && running === false) {
+            // running→false 说明任务刚结束；siteFailures 非空才弹出失败提示
+            var failures = data.siteFailures || [];
+            if (failures.length > 0 && !failureModalShownThisTask && !failureModalSuppressed) {
+                showCrawlFailModal(failures);
+                failureModalShownThisTask = true;
+            }
+        }
+        prevRunningState = running;
+    });
+}
+
+/**
+ * 渲染并弹出爬取失败提示弹窗。
+ * @param failures 后端返回的失败站点数组：[{siteName, savedCount, failureReason}]
+ */
+function showCrawlFailModal(failures) {
+    var html = '<div class="alert alert-warning py-2 mb-3">'
+             + '<strong>本次爬取任务中有 ' + failures.length + ' 个站点未能入库任何新闻，</strong>'
+             + '详情如下：</div>'
+             + '<table class="table table-sm table-bordered align-middle mb-0">'
+             + '<thead class="table-light"><tr>'
+             + '<th style="width:22%;">爬取网站</th>'
+             + '<th style="width:10%;text-align:center;">入库量</th>'
+             + '<th style="width:68%;">失败原因</th>'
+             + '</tr></thead><tbody>';
+    for (var i = 0; i < failures.length; i++) {
+        var f = failures[i];
+        html += '<tr>'
+              + '<td class="fw-semibold">' + escapeHtml(f.siteName || "") + '</td>'
+              + '<td class="text-center text-danger fw-bold">' + (f.savedCount != null ? f.savedCount : 0) + '</td>'
+              + '<td class="text-muted small">' + escapeHtml(f.failureReason || "未说明原因") + '</td>'
+              + '</tr>';
+    }
+    html += '</tbody></table>';
+    // 整体统计摘要
+    html += '<div class="mt-3 text-muted small"><i class="bi bi-lightbulb"></i> <strong>常见失败原因：</strong>'
+          + '<span class="text-danger">未识别到新闻文章链接</span>通常表示目标网站为JavaScript动态渲染（如腾讯新闻、今日头条等），'
+          + '本爬虫使用HttpClient+Jsoup不执行JS，无法爬取这类网站；'
+          + '<span class="text-danger">页面内容为空</span>通常表示网址错误或该网站限制了爬虫访问。'
+          + '建议替换为静态输出HTML的公开新闻频道首页。</div>';
+    $("#crawlFailModalBody").html(html);
+    // 只有 addSiteModal 不在显示时才弹出（避免两个 modal 叠在一起导致 backdrop 混乱）
+    var addShown = $("#addSiteModal").hasClass("show");
+    if (!addShown) {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("crawlFailModal")).show();
+    }
+}
+
+function startCrawler() {
+    var count = $("#crawlCount").val();
+    var checked = getCheckedSites();
+    // 一个站点都没有勾选（或站点列表为空）时给出提示
+    if (checked.length === 0) {
+        alert($("#siteMsOptions .site-check").length === 0
+            ? "当前还没有任何爬取网站，请先点击「添加网站」。"
+            : "请至少勾选一个要爬取的网站。");
+        return;
+    }
+    var ids = checked.map(function (s) { return s.id; }).join(",");
+    var names = checked.map(function (s) { return s.label; }).join("、");
+    if (!confirm("确认立即启动爬虫任务？\n爬取范围（" + checked.length + "个）：" + names
+        + "\n每个站点将采集 " + count + " 条新闻（各站点独立计数）。")) return;
+    // 启动新任务时重置：允许本次任务结束后再次弹出失败提示
+    failureModalShownThisTask = false;
+    prevRunningState = null;
+    // 提交每站爬取数量与勾选的站点ID（逗号分隔，后端按ID加载站点）
+    ajaxRequest("/crawler/start", {maxPerSite: count, siteIds: ids}, "POST", function () {
+        alert("爬虫已启动！请稍等片刻后查看日志。");
+        $("#siteMultiSelect").removeClass("open");
+        loadStatus();
+    });
+}
+
+function stopCrawler() {
+    if (!confirm("确认立即停止当前爬虫任务？")) return;
+    ajaxRequest("/crawler/stop", {}, "POST", function () {
+        alert("已发出停止指令，正在等待当前页面抓取结束...");
+        loadStatus();
+    });
+}
+
+// ==================== 爬取网站多选 ====================
+
+// 读取当前勾选的站点：[{id, name, label}]
+function getCheckedSites() {
+    var result = [];
+    $(".site-check:checked").each(function () {
+        var id = $(this).val();
+        var name = $(this).attr("data-site-name") || "";
+        var builtin = $(this).attr("data-builtin") === "1";
+        result.push({id: id, name: name, label: name + (builtin ? "（内置）" : "（自定义）")});
+    });
+    return result;
+}
+
+// 全选/清空所有站点复选框
+function setAllSitesChecked(checked) {
+    $(".site-check").prop("checked", checked);
+    updateSiteSummary();
+}
+
+// 更新下拉按钮上的已选摘要与工具栏计数
+function updateSiteSummary() {
+    var total = $(".site-check").length;
+    var checked = getCheckedSites();
+    var $btn = $("#siteMsButton");
+    if (total === 0) {
+        $btn.text("暂无站点，请添加");
+    } else if (checked.length === 0) {
+        $btn.text("未选择网站");
+    } else if (checked.length === total) {
+        $btn.text("全部站点（" + total + "个）");
+    } else {
+        // 部分勾选：显示数量与前2个名称，超出折叠
+        var shown = checked.slice(0, 2).map(function (s) { return s.name; }).join("、");
+        var more = checked.length > 2 ? (" 等" + checked.length + "个") : "";
+        $btn.text("已选 " + checked.length + "/" + total + "：" + shown + more);
+    }
+    $("#siteMsCount").text("已选 " + checked.length + "/" + total);
+    $("#btnDeleteSite").prop("disabled", checked.length === 0);
+}
+
+// ==================== 爬取网站管理 ====================
+
+function openAddSiteModal() {
+    $("#newSiteName").val("");
+    $("#newSiteUrl").val("");
+    $("#addSiteError").hide().text("");
+    // getOrCreateInstance 避免重复创建Modal实例
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("addSiteModal")).show();
+}
+
+function submitAddSite() {
+    var name = $.trim($("#newSiteName").val());
+    var url = $.trim($("#newSiteUrl").val());
+    if (!name) { showAddSiteError("请填写网站名称"); return; }
+    if (!url) { showAddSiteError("请填写网站网址"); return; }
+
+    ajaxRequest("/crawler/site/add", {name: name, url: url}, "POST", function (site) {
+        bootstrap.Modal.getInstance(document.getElementById("addSiteModal")).hide();
+        // 记住当前已勾选项，重建后保持并把新站点一并勾选
+        var keepIds = getCheckedSites().map(function (s) { return String(s.id); });
+        if (site && site.id) keepIds.push(String(site.id));
+        refreshSiteOptions(keepIds);
+    }, function (msg) {
+        // 后端校验失败（重名/URL非法等）直接在弹窗内红字提示，不关闭弹窗
+        showAddSiteError(msg);
+    });
+}
+
+function showAddSiteError(msg) {
+    $("#addSiteError").text(msg).show();
+}
+
+function deleteSelectedSites() {
+    var checked = getCheckedSites();
+    if (checked.length === 0) {
+        alert("请先勾选至少一个要删除的网站。");
+        return;
+    }
+    var names = checked.map(function (s) { return s.label; }).join("、");
+    if (!confirm("确认删除以下 " + checked.length + " 个网站？\n" + names
+        + "\n\n删除后这些网站将不再参与爬取（已采集的新闻数据不受影响）。")) return;
+
+    // 逐个调用删除接口（站点数量少，串行即可）；全部成功后刷新选项
+    var remaining = checked.slice();
+    var failed = [];
+    function doNext() {
+        if (remaining.length === 0) {
+            // 删除后保留其余站点的勾选状态：未被删除的站点默认仍勾选
+            refreshSiteOptions(null, checked.map(function (s) { return String(s.id); }));
+            if (failed.length > 0) alert("部分网站删除失败：" + failed.join("、"));
+            return;
+        }
+        var s = remaining.shift();
+        ajaxRequest("/crawler/site/delete", {id: s.id}, "POST", function () {
+            doNext();
+        }, function (msg) {
+            failed.push(s.label);
+            doNext();
+        });
+    }
+    doNext();
+}
+
+/**
+ * 从后端重新加载站点列表并重建复选框。
+ * @param checkedIds 重建后应勾选的站点ID；为null时默认全选
+ * @param removedIds 被删除的站点ID（用于全选时排除已不存在的项）
+ */
+function refreshSiteOptions(checkedIds, removedIds) {
+    ajaxRequest("/crawler/sites", {}, "GET", function (list) {
+        list = list || [];
+        var removed = removedIds || [];
+        var $box = $("#siteMsOptions").empty();
+        if (list.length === 0) {
+            $box.append('<div class="site-ms-empty">暂无爬取网站，请点击「添加网站」</div>');
+        } else {
+            list.forEach(function (s) {
+                var label = s.name + (s.isBuiltin === 1 ? "（内置）" : "（自定义）");
+                var isChecked;
+                if (checkedIds === null || checkedIds === undefined) {
+                    // 默认全选，排除已删除项
+                    isChecked = removed.indexOf(String(s.id)) === -1;
+                } else {
+                    isChecked = checkedIds.indexOf(String(s.id)) !== -1;
+                }
+                var $label = $('<label class="site-ms-option"></label>').attr("title", s.url || "");
+                var $cb = $('<input type="checkbox" class="form-check-input me-1 site-check">')
+                    .val(s.id).attr("data-site-name", s.name).attr("data-builtin", s.isBuiltin)
+                    .prop("checked", isChecked);
+                $label.append($cb).append($("<span></span>").text(label));
+                $box.append($label);
+            });
+        }
+        updateSiteSummary();
+    });
+}
+</script>
+</body>
+</html>

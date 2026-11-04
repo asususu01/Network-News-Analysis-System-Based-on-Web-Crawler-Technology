@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>事件聚类 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+</head>
+<body th:attr="data-client-mode=${clientMode != null and clientMode}">
+
+<!-- 顶部导航：统一 Fragment（管理端/用户端按 clientMode 切换） -->
+<div th:replace="~{fragments/nav :: navbar('cluster', ${clientMode != null and clientMode})}"></div>
+
+<div class="main-container container">
+
+    <!-- 顶部操作区 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-diagram-2"></i> 事件聚类（同一事件的多家媒体报道）</h5>
+            <div class="row g-3 align-items-center">
+                <div class="col-md-2"><label>统计区间：</label></div>
+                <div class="col-md-3">
+                    <select id="recentDays" class="form-select" onchange="loadClusters()">
+                        <option value="1">最近1天</option>
+                        <option value="3">最近3天</option>
+                        <option value="7" selected>最近7天</option>
+                        <option value="15">最近15天</option>
+                        <option value="30">最近30天</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary" onclick="loadClusters()"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+                </div>
+                <div class="col-md-5">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="onlyMulti" checked onchange="renderClusters()">
+                        <label class="form-check-label" for="onlyMulti">只看多源报道（≥2 篇）</label>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-2">
+                <div class="col-12 text-muted small">
+                    <i class="bi bi-info-circle"></i> <span id="clusterSummary">加载中…</span>
+                    <div>说明：簇数量取决于跨媒体的选题重叠度，并非所有新闻都会形成多源簇。</div>
+                    <!-- 客户端隐藏算法细节，仅管理端展示聚类原理 -->
+                    <div th:if="${clientMode == null or clientMode == false}">
+                        <i class="bi bi-lightbulb"></i> 聚类原理：SimHash 64位指纹 + 4段分桶召回，汉明距离 ≤ 3 判定为同一事件
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 事件簇卡片列表（一次性全部渲染，不做分页） -->
+    <div id="clusterGrid" class="row g-3"></div>
+    <div id="clusterEmpty" class="text-center text-muted py-5" style="display:none;">
+        <i class="bi bi-inbox"></i> 暂无事件簇数据，请先运行爬虫采集新闻
+    </div>
+
+</div>
+
+<!-- 簇内报道多源对比模态框 -->
+<div class="modal fade" id="reportsModal" tabindex="-1" aria-labelledby="reportsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reportsModalLabel">事件报道</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body" id="reportsBody"></div>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+$(function () {
+    loadClusters();
+});
+
+// 情感徽章：把 -100~100 的强度值映射为五档语义描述，原始数值放在 title 中便于查看
+function sentimentBadge(avg) {
+    var v = Number(avg || 0);
+    var text, bg, color = '#fff';
+    if (v >= 60) {
+        text = '强烈正面'; bg = '#2f7d5b';
+    } else if (v >= 25) {
+        text = '偏正面'; bg = '#6ba292';
+    } else if (v > -25) {
+        text = '中性'; bg = '#d1d5db'; color = '#4b5563';
+    } else if (v > -60) {
+        text = '偏负面'; bg = '#d9a29c'; color = '#4b5563';
+    } else {
+        text = '强烈负面'; bg = '#b03a35';
+    }
+    return '<span class="badge" style="background:' + bg + ';color:' + color + ';"'
+        + ' title="情感强度：' + v + '">' + text + '</span>';
+}
+
+var allClusters = [];    // 本次查询的全量结果（前端缓存，切换开关不必重新请求）
+
+// 加载事件簇列表：一次性取回全部（最多 1000 条），不做分页
+function loadClusters() {
+    var days = $("#recentDays").val();
+    $("#clusterGrid").empty();
+    $("#clusterEmpty").hide();
+    allClusters = [];
+
+    // 统计口径单独取，避免把"当前渲染的卡片"误读成总量
+    ajaxRequest("/analysis/cluster/stats", {days: days}, "GET", function (s) {
+        s = s || {};
+        $("#clusterSummary").text("区间内共 " + (s.cluster_total || 0) + " 个事件簇，其中 "
+            + (s.multi_total || 0) + " 个为多源报道，合计覆盖 " + (s.news_total || 0) + " 篇新闻");
+    }, function () {
+        $("#clusterSummary").text("统计信息加载失败");
+    });
+
+    ajaxRequest("/analysis/clusters", {days: days, limit: 1000}, "GET", function (list) {
+        allClusters = list || [];
+        renderClusters();
+    }, function (msg) {
+        $("#clusterEmpty").show().text("事件簇加载失败：" + msg);
+    });
+}
+
+// 按当前开关一次性渲染全部事件簇（切换开关不重新请求接口）
+function renderClusters() {
+    var list = visibleClusters();
+    var grid = $("#clusterGrid").empty();
+    for (var i = 0; i < list.length; i++) {
+        grid.append(buildCard(list[i]));
+    }
+    $("#clusterEmpty").toggle(list.length === 0);
+}
+
+// 只看多源报道时过滤掉单篇簇
+function visibleClusters() {
+    if (!$("#onlyMulti").is(":checked")) {
+        return allClusters;
+    }
+    return allClusters.filter(function (c) { return (c.newsCount || 0) >= 2; });
+}
+
+// 单个事件簇卡片
+function buildCard(c) {
+    var kwHtml = "";
+    if (c.keywords) {
+        var kws = c.keywords.split(",");
+        for (var k = 0; k < kws.length; k++) {
+            if (!kws[k]) continue;
+            kwHtml += '<span class="badge bg-light text-dark border me-1 mb-1">'
+                + escapeHtml(kws[k]) + '</span>';
+        }
+    }
+    return '<div class="col-md-6 col-xl-4">'
+        + '<div class="card h-100 shadow-sm">'
+        + '<div class="card-body">'
+        + '<h6 class="card-title mb-2">' + escapeHtml(c.title || "（无标题）") + '</h6>'
+        + '<div class="mb-2">' + kwHtml + '</div>'
+        + '<div class="text-muted small"><i class="bi bi-clock"></i> 首报 ' + (c.firstTime ? formatDateTime(c.firstTime) : '-')
+        + ' · 最新 ' + (c.lastTime ? formatDateTime(c.lastTime) : '-') + '</div>'
+        + '</div>'
+        + '<div class="card-footer d-flex justify-content-between align-items-center">'
+        + '<div><span class="badge badge-soft-brand">' + (c.newsCount || 0) + ' 篇报道</span> '
+        + '<span class="badge badge-soft-muted">' + (c.sourceCount || 0) + ' 家媒体</span> '
+        + sentimentBadge(c.sentimentAvg) + '</div>'
+        + '<button class="btn-link-open" onclick="openCluster(' + c.id + ')">查看报道</button>'
+        + '</div></div></div>';
+}
+
+// 打开某簇的全部报道（多源对比）
+function openCluster(clusterId) {
+    $("#reportsModalLabel").text("事件报道（簇ID " + clusterId + "）");
+    $("#reportsBody").html('<div class="text-muted">加载中...</div>');
+    var modal = new bootstrap.Modal(document.getElementById("reportsModal"));
+    modal.show();
+    ajaxRequest("/analysis/cluster/detail/" + clusterId, {}, "GET", function (list) {
+        list = list || [];
+        if (list.length === 0) {
+            $("#reportsBody").html('<div class="text-muted">该簇暂无报道</div>');
+            return;
+        }
+        var html = '<div class="table-responsive"><table class="table table-sm align-middle">'
+            + '<thead><tr><th width="110">来源</th><th>标题</th><th width="150">时间</th></tr></thead><tbody>';
+        for (var i = 0; i < list.length; i++) {
+            var n = list[i];
+            var title = escapeHtml(n.title || "");
+            var link = (n.url && n.url.length > 0)
+                ? '<a href="' + escapeHtml(n.url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>'
+                : title;
+            html += '<tr><td><span class="badge bg-secondary">' + escapeHtml(n.source || "未知") + '</span></td>'
+                + '<td>' + link
+                + (n.summary ? '<div class="text-muted small mt-1">' + escapeHtml(n.summary) + '</div>' : '')
+                + '</td>'
+                + '<td class="text-muted small">' + (n.publishTime ? formatDateTime(n.publishTime) : (n.createTime ? formatDateTime(n.createTime) : '-')) + '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+        $("#reportsBody").html(html);
+    }, function (msg) {
+        $("#reportsBody").html('<div class="text-danger">加载失败：' + escapeHtml(msg) + '</div>');
+    });
+}
+</script>
+</body>
+</html>

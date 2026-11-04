@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户注册 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+</head>
+<body class="auth-body">
+
+<div class="auth-card auth-card-wide">
+    <div class="auth-mark"><i class="bi bi-person-plus"></i></div>
+    <h1 class="auth-title">注册普通用户</h1>
+    <p class="auth-sub">注册后可记录浏览足迹，登录即可查看历史浏览记录</p>
+
+    <div th:if="${errorMsg}" class="alert alert-danger mb-3" role="alert">
+        <span th:text="${errorMsg}"></span>
+    </div>
+
+    <form th:action="@{/user/doRegister}" method="post" autocomplete="off" id="regForm">
+        <div class="mb-3">
+            <label class="form-label">用户名 <span class="text-danger">*</span></label>
+            <input type="text" name="username" class="form-control" required maxlength="50"
+                   th:value="${username}" placeholder="请输入用户名">
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <label class="form-label">密码 <span class="text-danger">*</span></label>
+                <input type="password" name="password" id="pwd" class="form-control" required
+                       minlength="6" placeholder="至少6位">
+            </div>
+            <div class="col-6">
+                <label class="form-label">确认密码 <span class="text-danger">*</span></label>
+                <input type="password" id="pwd2" class="form-control" required placeholder="再次输入密码">
+            </div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <label class="form-label">年龄</label>
+                <input type="number" name="age" class="form-control" min="0" max="150"
+                       th:value="${age}" placeholder="选填">
+            </div>
+            <div class="col-6">
+                <label class="form-label">性别</label>
+                <select name="gender" class="form-select">
+                    <option value="1" th:selected="${gender == null or gender == 1}">男</option>
+                    <option value="2" th:selected="${gender != null and gender == 2}">女</option>
+                    <option value="0" th:selected="${gender != null and gender == 0}">保密</option>
+                </select>
+            </div>
+        </div>
+        <div class="mb-4">
+            <label class="form-label">职业</label>
+            <input type="text" name="occupation" class="form-control" maxlength="50"
+                   th:value="${occupation}" placeholder="如：学生、工程师、教师（选填）">
+        </div>
+        <button type="submit" class="btn btn-primary auth-submit">注册</button>
+    </form>
+
+    <div class="auth-links">
+        <p>已有账号？<a th:href="@{/login}">立即登录</a><span class="auth-muted">·</span><a th:href="@{/client}">以游客身份浏览</a></p>
+    </div>
+</div>
+
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script>
+    // 注册前校验两次密码一致
+    document.getElementById('regForm').addEventListener('submit', function (e) {
+        var p1 = document.getElementById('pwd').value;
+        var p2 = document.getElementById('pwd2').value;
+        if (p1 !== p2) {
+            e.preventDefault();
+            alert('两次输入的密码不一致');
+        }
+    });
+</script>
+</body>
+</html>

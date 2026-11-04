@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户数据分析 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <!-- ECharts CDN -->
+    <script th:src="@{/lib/echarts/echarts.min.js}"></script>
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（管理端） -->
+<div th:replace="~{fragments/nav :: navbar('stats', false)}"></div>
+
+<div class="main-container container">
+
+    <!-- 顶部说明区 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-people"></i> 用户数据分析</h5>
+            <div class="text-muted small">数据来源：用户端注册用户表 user；如需查看新闻维度分析，请前往“数据分析”页面</div>
+        </div>
+    </div>
+
+    <!-- 用户总数概览 -->
+    <div class="card mb-3 stat-hero">
+        <div class="card-body d-flex align-items-center">
+            <div class="stat-hero-icon"><i class="bi bi-people"></i></div>
+            <div class="ms-3">
+                <div class="stat-hero-label">注册用户总数</div>
+                <div id="userTotalNum" class="stat-hero-num">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 用户图表第一行：性别分布饼图 + 职业分布柱状图 -->
+    <div class="row mb-4">
+        <div class="col-md-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-gender-ambiguous"></i> 用户性别分布（饼图）</h5>
+                    <div id="chartUserGender" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-briefcase"></i> 用户职业分布 Top10（柱状图）</h5>
+                    <div id="chartUserOccupation" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 用户图表第二行：年龄段分布柱状图 + 注册趋势折线图 -->
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-cake2"></i> 用户年龄段分布（柱状图）</h5>
+                    <div id="chartUserAge" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-graph-up"></i> 用户注册趋势（折线图）</h5>
+                    <div class="d-flex align-items-center mb-2" style="gap:8px;">
+                        <select id="userRecentDays" class="form-select form-select-sm" style="width:auto;" onchange="loadUserDateChart()">
+                            <option value="7">最近7天</option>
+                            <option value="15" selected>最近15天</option>
+                            <option value="30">最近30天</option>
+                        </select>
+                    </div>
+                    <div id="chartUserDate" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+// 用户图表实例
+var chartUserGender = echarts.init(document.getElementById("chartUserGender"));
+var chartUserOccupation = echarts.init(document.getElementById("chartUserOccupation"));
+var chartUserAge = echarts.init(document.getElementById("chartUserAge"));
+var chartUserDate = echarts.init(document.getElementById("chartUserDate"));
+
+$(function () {
+    loadUserCharts();
+    // 自适应
+    window.addEventListener("resize", function () {
+        chartUserGender.resize(); chartUserOccupation.resize();
+        chartUserAge.resize(); chartUserDate.resize();
+    });
+});
+
+// 加载全部用户数据图表
+function loadUserCharts() {
+    loadUserTotal();
+    loadUserGenderChart();
+    loadUserOccupationChart();
+    loadUserAgeChart();
+    loadUserDateChart();
+}
+
+// 用户总数
+function loadUserTotal() {
+    ajaxRequest("/analysis/user/total", {}, "GET", function (data) {
+        $("#userTotalNum").text(data || 0);
+    }, function () { $("#userTotalNum").text(0); });
+}
+
+// 性别分布饼图
+function loadUserGenderChart() {
+    chartUserGender.showLoading();
+    ajaxRequest("/analysis/user/byGender", {}, "GET", function (list) {
+        chartUserGender.hideLoading();
+        list = list || [];
+        if (list.length === 0) {
+            chartUserGender.setOption({ title: { text: "暂无用户数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+            return;
+        }
+        var colorsMap = { "男": "#5b8ff9", "女": "#f7698a", "未知": "#bfbfbf" };
+        var colors = list.map(function (i) { return colorsMap[i.name] || "#999"; });
+        chartUserGender.setOption({
+            tooltip: { trigger: "item", formatter: "{b}: {c}人 ({d}%)" },
+            legend: { bottom: 0 },
+            series: [{
+                type: "pie", radius: ["40%", "70%"],
+                label: { formatter: "{b}\n{d}%" },
+                data: list,
+                itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 }
+            }],
+            color: colors
+        }, true);
+    }, function () { chartUserGender.hideLoading(); });
+}
+
+// 职业分布柱状图（横向）
+function loadUserOccupationChart() {
+    chartUserOccupation.showLoading();
+    ajaxRequest("/analysis/user/byOccupation", {topN: 10}, "GET", function (list) {
+        chartUserOccupation.hideLoading();
+        list = list || [];
+        var names = list.map(function (i) { return i.name; }).reverse();
+        var values = list.map(function (i) { return Number(i.value || 0); }).reverse();
+        if (names.length === 0) {
+            chartUserOccupation.setOption({ title: { text: "暂无职业数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+            return;
+        }
+        chartUserOccupation.setOption({
+            tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+            grid: { left: 110, right: 30, top: 20, bottom: 30 },
+            xAxis: { type: "value", name: "人" },
+            yAxis: { type: "category", data: names },
+            series: [{
+                type: "bar", data: values,
+                itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                    { offset: 0, color: "#43cea2" }, { offset: 1, color: "#185a9d" }
+                ]) },
+                label: { show: true, position: "right" }
+            }]
+        }, true);
+    }, function () { chartUserOccupation.hideLoading(); });
+}
+
+// 年龄段分布柱状图
+function loadUserAgeChart() {
+    chartUserAge.showLoading();
+    ajaxRequest("/analysis/user/byAgeGroup", {}, "GET", function (list) {
+        chartUserAge.hideLoading();
+        list = list || [];
+        var names = list.map(function (i) { return i.name; });
+        var values = list.map(function (i) { return Number(i.value || 0); });
+        if (names.length === 0) {
+            chartUserAge.setOption({ title: { text: "暂无年龄数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+            return;
+        }
+        chartUserAge.setOption({
+            tooltip: { trigger: "axis" },
+            grid: { left: 50, right: 20, top: 30, bottom: 40 },
+            xAxis: { type: "category", data: names, name: "年龄段" },
+            yAxis: { type: "value", name: "人" },
+            series: [{
+                type: "bar", data: values, barWidth: "55%",
+                itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: "#fda085" }, { offset: 1, color: "#f6d365" }
+                ]) },
+                label: { show: true, position: "top" }
+            }]
+        }, true);
+    }, function () { chartUserAge.hideLoading(); });
+}
+
+// 注册趋势折线图
+function loadUserDateChart() {
+    var days = $("#userRecentDays").val();
+    chartUserDate.showLoading();
+    ajaxRequest("/analysis/user/byDate", {recentDays: days}, "GET", function (list) {
+        chartUserDate.hideLoading();
+        list = list || [];
+        var x = list.map(function (i) { return i.statDate; });
+        var y = list.map(function (i) { return Number(i.userCount || 0); });
+        if (x.length === 0) {
+            chartUserDate.setOption({ title: { text: "暂无注册数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+            return;
+        }
+        chartUserDate.setOption({
+            tooltip: { trigger: "axis" },
+            grid: { left: 50, right: 20, top: 30, bottom: 50 },
+            xAxis: { type: "category", data: x, boundaryGap: false, axisLabel: { rotate: 35 } },
+            yAxis: { type: "value", name: "人", minInterval: 1 },
+            series: [{
+                name: "新增用户", type: "line", data: y, smooth: true,
+                areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: "rgba(31,78,121,0.22)" }, { offset: 1, color: "rgba(31,78,121,0.02)" }
+                ]) },
+                lineStyle: { color: "#1f4e79", width: 2 },
+                itemStyle: { color: "#1f4e79" }
+            }]
+        }, true);
+    }, function () { chartUserDate.hideLoading(); });
+}
+</script>
+</body>
+</html>

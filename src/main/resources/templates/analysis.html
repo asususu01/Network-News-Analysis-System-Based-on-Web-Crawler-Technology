@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新闻数据分析 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <!-- ECharts CDN -->
+    <script th:src="@{/lib/echarts/echarts.min.js}"></script>
+</head>
+<body th:attr="data-client-mode=${clientMode != null and clientMode}">
+
+<!-- 顶部导航：统一 Fragment（管理端/用户端按 clientMode 切换） -->
+<div th:replace="~{fragments/nav :: navbar('analysis', ${clientMode != null and clientMode})}"></div>
+
+<div class="main-container container">
+
+    <!-- 顶部操作区 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-bar-chart-line"></i> 新闻数据分析</h5>
+            <div class="row g-3 align-items-center">
+                <div class="col-md-2">
+                    <label>统计区间：</label>
+                </div>
+                <div class="col-md-3">
+                    <select id="recentDays" class="form-select">
+                        <option value="1">最近1天</option>
+                        <option value="3">最近3天</option>
+                        <option value="7" selected>最近7天</option>
+                        <option value="15">最近15天</option>
+                        <option value="30">最近30天</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary" onclick="loadAllCharts()"><i class="bi bi-arrow-clockwise"></i> 刷新图表</button>
+                </div>
+                <div class="col-md-4 text-end text-muted small">
+                    <i class="bi bi-lightbulb"></i> 数据说明：新闻类型为爬虫入库时按频道/关键词自动分类；情感倾向基于情感词典加权计算，含否定词翻转与程度副词修饰，输出 -100~100 的强度值
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表第一行：新闻类型统计 + 来源分布 -->
+    <div class="row mb-4">
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-tags"></i> 新闻类型统计（横向柱状图）</h5>
+                    <div id="chartCategory" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-globe2"></i> 新闻来源分布（饼图）</h5>
+                    <div id="chartSource" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表第二行：日期数量 + 情感分布 -->
+    <div class="row">
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-graph-up"></i> 新闻数量变化趋势（柱状图）</h5>
+                    <div id="chartDate" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-heart"></i> 新闻情感倾向分布（饼图）</h5>
+                    <div id="chartSentiment" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表第三行：情感走势（双轴折线图） -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-graph-down"></i> 情感走势与报道量（双轴折线图）</h5>
+                    <div id="chartSentimentTrend" class="chart-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表第四行：热词榜 + 热词爆发榜 -->
+    <div class="row mt-4">
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-fire"></i> 热词榜（标题权重×2）</h5>
+                    <div id="hotWordList" class="d-flex flex-wrap" style="gap:8px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-rocket"></i> 热词爆发榜（较前7日均值增长）</h5>
+                    <div id="burstWordList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表第五行：实体热度榜 -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap">
+                        <h5 class="card-title mb-0"><i class="bi bi-diagram-3"></i> 实体热度榜（人物 / 机构 / 地点，全部视图每类前 5、单类前 10）</h5>
+                        <select id="entityType" class="form-select form-select-sm" style="width:130px;" onchange="renderEntityChart()">
+                            <option value="">全部类型</option>
+                            <option value="PERSON">人物</option>
+                            <option value="ORG">机构</option>
+                            <option value="LOC">地点</option>
+                        </select>
+                    </div>
+                    <div id="entitySummary" class="text-muted small mt-2"></div>
+                    <div id="chartEntityGraph" class="chart-box"></div>
+                    <div id="entityPairs" class="text-muted small mt-2"></div>
+                    <div class="text-muted small mt-1">
+                        说明：实体由规则+词典从标题与正文抽取；共现对表示两实体在同一篇新闻中共同出现的次数，不代表语义上的从属关系。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script th:src="@{/lib/jquery/jquery.min.js}"></script>
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/js/common.js}"></script>
+<script>
+// 新闻图表实例
+var chartCategory = echarts.init(document.getElementById("chartCategory"));
+var chartSource = echarts.init(document.getElementById("chartSource"));
+var chartDate = echarts.init(document.getElementById("chartDate"));
+var chartSentiment = echarts.init(document.getElementById("chartSentiment"));
+// 新增图表：情感走势、实体关系网络（两端共用）
+var chartSentimentTrend = echarts.init(document.getElementById("chartSentimentTrend"));
+var chartEntityGraph = echarts.init(document.getElementById("chartEntityGraph"));
+
+$(function () {
+    loadAllCharts();
+    // 自适应
+    window.addEventListener("resize", function () {
+        chartCategory.resize(); chartSource.resize();
+        chartDate.resize(); chartSentiment.resize();
+        chartSentimentTrend.resize(); chartEntityGraph.resize();
+    });
+});
+
+function loadAllCharts() {
+    var days = $("#recentDays").val();
+    loadCategoryChart(days);
+    loadSourceChart(days);
+    loadDateChart(days);
+    loadSentimentChart(days);
+    loadSentimentTrendChart(days);
+    loadHotWordBoard(days);
+    loadEntityGraphChart(days);
+}
+
+// ---------- 1. 新闻类型统计（横向柱状图，数量多的在上方） ----------
+function loadCategoryChart(days) {
+    chartCategory.showLoading();
+    ajaxRequest("/analysis/countByCategory", {recentDays: days}, "GET", function (list) {
+        chartCategory.hideLoading();
+        list = list || [];
+        // 接口按数量倒序返回；ECharts类目轴自下而上渲染，reverse后数量最多的显示在最上方
+        var names = list.map(function (i) { return i.name; }).reverse();
+        var values = list.map(function (i) { return Number(i.value || 0); }).reverse();
+
+        if (names.length === 0) {
+            chartCategory.setOption({ title: { text: "暂无新闻类型数据，请先运行爬虫", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } }, true);
+            return;
+        }
+        chartCategory.setOption({
+            tooltip: { trigger: "axis", axisPointer: { type: "shadow" },
+                formatter: function (params) {
+                    var p = params[0];
+                    return p.name + "：" + p.value + " 条";
+                }
+            },
+            grid: { left: 90, right: 40, top: 20, bottom: 30 },
+            xAxis: { type: "value", name: "条", minInterval: 1 },
+            yAxis: { type: "category", data: names },
+            series: [{
+                type: "bar",
+                data: values,
+                barMaxWidth: 22,
+                itemStyle: {
+                    borderRadius: [0, 2, 2, 0],
+                    color: "#1f4e79"
+                },
+                label: { show: true, position: "right", formatter: "{c} 条" }
+            }]
+        }, true);
+    }, function (msg) { chartCategory.hideLoading(); alert(msg); });
+}
+
+// ---------- 2. 新闻来源饼图 ----------
+function loadSourceChart(days) {
+    chartSource.showLoading();
+    ajaxRequest("/analysis/countBySource", {recentDays: days}, "GET", function (list) {
+        chartSource.hideLoading();
+        list = list || [];
+        if (list.length === 0) {
+            chartSource.setOption({ title: { text: "暂无来源统计数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+            return;
+        }
+        // 限制来源最多8个，其余合并为"其他"
+        if (list.length > 8) {
+            var other = 0;
+            for (var i = 8; i < list.length; i++) {
+                other += Number(list[i].value || 0);
+            }
+            list = list.slice(0, 8);
+            list.push({ name: "其他", value: other });
+        }
+        var option = {
+            tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+            legend: { orient: "vertical", left: "left", top: "middle" },
+            series: [{
+                type: "pie",
+                radius: ["40%", "70%"],
+                center: ["60%", "50%"],
+                avoidLabelOverlap: true,
+                label: { formatter: "{b}\n{d}%" },
+                data: list,
+                itemStyle: {
+                    borderRadius: 2,
+                    borderColor: "#fff",
+                    borderWidth: 2
+                }
+            }],
+            color: ["#1f4e79", "#4a7ba6", "#7fa3c4", "#2f7d5b", "#a8700f", "#b03a35", "#6b7280", "#9aa8b6", "#cbd5e1"]
+        };
+        chartSource.setOption(option, true);
+    }, function (msg) { chartSource.hideLoading(); });
+}
+
+// ---------- 3. 日期柱状图 ----------
+function loadDateChart(days) {
+    chartDate.showLoading();
+    ajaxRequest("/analysis/countByDate", {recentDays: days}, "GET", function (list) {
+        chartDate.hideLoading();
+        list = list || [];
+        var x = [], y = [];
+        for (var i = 0; i < list.length; i++) {
+            x.push(list[i].statDate);
+            y.push(Number(list[i].newsCount || 0));
+        }
+        var option = {
+            tooltip: { trigger: "axis" },
+            grid: { left: 50, right: 20, top: 30, bottom: 50 },
+            xAxis: { type: "category", data: x, axisLabel: { rotate: 35 } },
+            yAxis: { type: "value", name: "条" },
+            series: [{
+                name: "新闻数量",
+                type: "bar",
+                data: y,
+                barWidth: "60%",
+                itemStyle: {
+                    color: "#4a7ba6"
+                },
+                label: { show: true, position: "top" }
+            }]
+        };
+        if (x.length === 0) {
+            chartDate.setOption({ title: { text: "暂无数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+        } else {
+            chartDate.setOption(option, true);
+        }
+    }, function (msg) { chartDate.hideLoading(); });
+}
+
+// ---------- 5. 情感走势（双轴折线图） ----------
+function loadSentimentTrendChart(days) {
+    chartSentimentTrend.showLoading();
+    ajaxRequest("/analysis/sentimentTrend", {recentDays: days}, "GET", function (list) {
+        chartSentimentTrend.hideLoading();
+        list = list || [];
+        var x = list.map(function (i) { return i.statDate; });
+        var score = list.map(function (i) { return Number(i.avgScore || 0); });
+        var count = list.map(function (i) { return Number(i.newsCount || 0); });
+        if (x.length === 0) {
+            chartSentimentTrend.setOption({ title: { text: "暂无情感走势数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } }, true);
+            return;
+        }
+        // y 轴按实际数据自适应：写死 -100~100 时曲线几乎贴 0，看不出涨跌
+        var lo = Math.min.apply(null, score);
+        var hi = Math.max.apply(null, score);
+        var pad = Math.max(5, Math.round((hi - lo) * 0.3));
+        var yMin = Math.max(-100, lo - pad);
+        var yMax = Math.min(100, hi + pad);
+        chartSentimentTrend.setOption({
+            tooltip: {trigger: "axis"},
+            legend: {data: ["情感均值", "报道量"]},
+            grid: {left: 60, right: 60, top: 40, bottom: 35},
+            xAxis: {type: "category", data: x},
+            yAxis: [
+                {type: "value", name: "情感强度", min: yMin, max: yMax},
+                {type: "value", name: "篇数", minInterval: 1}
+            ],
+            series: [
+                {
+                    name: "情感均值", type: "line", smooth: true, data: score,
+                    itemStyle: {color: "#b03a35"},
+                    markLine: {silent: true, symbol: "none", data: [{yAxis: 0}], lineStyle: {type: "dashed", color: "#c3c9d1"}}
+                },
+                {
+                    name: "报道量", type: "bar", yAxisIndex: 1, data: count,
+                    itemStyle: {color: "rgba(31,78,121,0.28)"}
+                }
+            ]
+        }, true);
+    }, function (msg) { chartSentimentTrend.hideLoading(); });
+}
+
+// ---------- 6. 热词榜 + 热词爆发榜（HTML 列表） ----------
+function loadHotWordBoard(days) {
+    // 热词榜
+    ajaxRequest("/analysis/hotWords", {recentDays: days, topN: 20}, "GET", function (list) {
+        var box = $("#hotWordList").empty();
+        list = list || [];
+        if (list.length === 0) {
+            box.append('<span class="text-muted small">暂无热词数据，请先运行爬虫完成热词分析</span>');
+        } else {
+            for (var i = 0; i < list.length; i++) {
+                var w = escapeHtml(list[i].word || "");
+                var f = (list[i].frequency == null) ? "-" : list[i].frequency;
+                box.append('<span class="badge bg-light text-dark border" style="font-size:13px;padding:8px 10px;">'
+                    + w + ' <b class="text-primary">' + f + '</b></span>');
+            }
+        }
+    }, function () {
+        $("#hotWordList").html('<span class="text-muted small">热词数据加载失败</span>');
+    });
+
+    // 爆发词
+    ajaxRequest("/analysis/burstWords", {topN: 10}, "GET", function (list) {
+        var box = $("#burstWordList").empty();
+        list = list || [];
+        if (list.length === 0) {
+            box.append('<div class="text-muted small">暂无爆发词（需至少 2 天基期热词数据）</div>');
+            return;
+        }
+        var html = '<table class="table table-sm align-middle mb-0"><tbody>';
+        for (var i = 0; i < list.length; i++) {
+            var w = escapeHtml(list[i].word || "");
+            var f = list[i].frequency == null ? 0 : list[i].frequency;
+            var y = list[i].baseFreq == null ? 0 : list[i].baseFreq;
+            var g = list[i].growth == null ? 0 : list[i].growth;
+            html += '<tr><td>' + (i + 1) + '</td><td><b>' + w + '</b></td>'
+                + '<td class="text-end">' + f + '<span class="text-muted small"> / 均' + y + '</span></td>'
+                + '<td class="text-end"><span class="badge bg-danger">↑' + g + '%</span></td></tr>';
+        }
+        html += '</tbody></table>';
+        box.append(html);
+    }, function () {
+        $("#burstWordList").html('<div class="text-muted small">爆发词加载失败</div>');
+    });
+}
+
+// ---------- 7. 实体热度榜（横向条形图，原力导向图改造） ----------
+var entityCache = { items: [], pairs: [] };
+var ENTITY_COLOR = { PERSON: "#b03a35", ORG: "#1f4e79", LOC: "#2f7d5b" };
+var ENTITY_LABEL = { PERSON: "人物", ORG: "机构", LOC: "地点" };
+
+function loadEntityGraphChart(days) {
+    chartEntityGraph.showLoading();
+    ajaxRequest("/analysis/entityGraph", {days: days}, "GET", function (data) {
+        chartEntityGraph.hideLoading();
+        data = data || {};
+        entityCache.items = data.items || [];
+        entityCache.pairs = data.pairs || [];
+        $("#entitySummary").text("共抽取 " + (data.total_entity || 0) + " 个实体，覆盖 "
+            + (data.news_with_entity || 0) + " 篇新闻（统计区间 " + days + " 天）");
+        renderEntityPairs();
+        renderEntityChart();
+    }, function (msg) { chartEntityGraph.hideLoading(); });
+}
+
+// 类型筛选只重绘图表，不重新请求
+function renderEntityChart() {
+    var type = $("#entityType").val();
+    var list;
+    if (type) {
+        list = entityCache.items.filter(function (i) { return i.type === type; });
+    } else {
+        // 每类各取 5 条：保证人物/机构在"全部"视图里也有可见占比，不被地名挤没
+        list = [];
+        ["PERSON", "ORG", "LOC"].forEach(function (t) {
+            var sub = entityCache.items.filter(function (i) { return i.type === t; });
+            sub.sort(function (a, b) { return Number(b.cnt || 0) - Number(a.cnt || 0); });
+            list = list.concat(sub.slice(0, 5));
+        });
+    }
+    list.sort(function (a, b) { return Number(b.cnt || 0) - Number(a.cnt || 0); });
+    if (list.length === 0) {
+        chartEntityGraph.setOption({ title: { text: "暂无实体数据，请先运行爬虫采集新闻",
+            left: "center", top: "center", textStyle: {color: "#999", fontSize: 14} } }, true);
+        return;
+    }
+    // ECharts 类目轴自下而上渲染，倒序后最高频显示在最上方
+    var reversed = list.slice().reverse();
+    chartEntityGraph.setOption({
+        tooltip: {
+            trigger: "axis", axisPointer: { type: "shadow" },
+            formatter: function (ps) {
+                var p = ps[0];
+                var it = reversed[p.dataIndex];
+                return p.name + "（" + (ENTITY_LABEL[it.type] || it.type) + "）：出现 " + p.value + " 次";
+            }
+        },
+        grid: { left: 110, right: 50, top: 20, bottom: 30 },
+        // 对数轴：地名 466 与人物 3 都能看见（线性轴下小值等于不存在）
+        xAxis: { type: "log", min: 1, logBase: 10 },
+        yAxis: { type: "category", data: reversed.map(function (i) { return i.name; }), axisLabel: { fontSize: 12 } },
+        series: [{
+            type: "bar",
+            barMaxWidth: 22,
+            data: reversed.map(function (i) {
+                return { value: Number(i.cnt || 0), itemStyle: { color: ENTITY_COLOR[i.type] || "#999" } };
+            }),
+            label: { show: true, position: "right" }
+        }]
+    }, true);
+}
+
+// 高频共现对：用文字排行而非网络图，可读性更高
+function renderEntityPairs() {
+    var pairs = entityCache.pairs || [];
+    if (pairs.length === 0) {
+        $("#entityPairs").text("");
+        return;
+    }
+    var html = "<strong>高频共现：</strong>";
+    for (var i = 0; i < pairs.length; i++) {
+        html += '<span class="badge bg-light text-dark border me-1">'
+            + escapeHtml(pairs[i].source) + " × " + escapeHtml(pairs[i].target)
+            + " " + pairs[i].weight + " 次</span>";
+    }
+    $("#entityPairs").html(html);
+}
+
+// ---------- 4. 情感饼图 ----------
+function loadSentimentChart(days) {
+    chartSentiment.showLoading();
+    ajaxRequest("/analysis/countBySentiment", {recentDays: days}, "GET", function (list) {
+        chartSentiment.hideLoading();
+        list = list || [];
+        var colorsMap = { "正面": "#2f7d5b", "中性": "#8b939e", "负面": "#b03a35" };
+        var colors = [];
+        for (var i = 0; i < list.length; i++) colors.push(colorsMap[list[i].name] || "#999");
+        var option = {
+            tooltip: { trigger: "item", formatter: "{b}: {c}条 ({d}%)" },
+            legend: { bottom: 0 },
+            series: [{
+                type: "pie",
+                radius: ["35%", "65%"],
+                roseType: "radius",
+                label: { formatter: "{b}\n{d}%" },
+                data: list,
+                itemStyle: { borderRadius: 2, borderColor: "#fff", borderWidth: 2 }
+            }],
+            color: colors
+        };
+        // 如果全是0，显示暂无
+        var total = 0;
+        for (var i = 0; i < list.length; i++) total += Number(list[i].value || 0);
+        if (total === 0) {
+            chartSentiment.setOption({ title: { text: "暂无情感统计数据", left: "center", top: "center", textStyle: {color: "#999", fontSize:14} } });
+        } else {
+            chartSentiment.setOption(option, true);
+        }
+    }, function (msg) { chartSentiment.hideLoading(); });
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.newssystem.mapper.NewsMapper">
+
+    <!-- 通用查询映射结果 -->
+    <resultMap id="BaseResultMap" type="com.newssystem.entity.News">
+        <id column="id" property="id" />
+        <result column="title" property="title" />
+        <result column="url" property="url" />
+        <result column="url_hash" property="urlHash" />
+        <result column="source" property="source" />
+        <result column="publish_time" property="publishTime" />
+        <result column="content" property="content" />
+        <result column="sentiment" property="sentiment" />
+        <result column="create_time" property="createTime" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, title, url, url_hash, source, publish_time, content, sentiment, create_time
+    </sql>
+
+    <!--
+        说明：大部分SQL由MyBatis-Plus内置方法提供
+        自定义统计SQL已用 @Select 注解写在 NewsMapper 接口中，此处无需重复
+    -->
+
+</mapper>

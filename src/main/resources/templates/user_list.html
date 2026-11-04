@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新闻浏览 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <style>
+        /* 视觉基线（配色/圆角/边框/字号/筛选面板/日期卡片）由 theme.css 统一接管，此处仅保留布局 */
+        .list-layout {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .list-layout .list-main { flex: 1 1 auto; min-width: 0; }
+        .filter-sidebar {
+            width: 210px;
+            flex: 0 0 210px;
+            position: sticky;
+            top: 16px;
+        }
+        .filter-sidebar label.filter-opt {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .filter-sidebar label.filter-opt small { margin-left: auto; }
+        .filter-count {
+            display: inline-block;
+            margin-left: 3px;
+            text-align: center;
+        }
+        .filter-sidebar-actions .btn { flex: 1; }
+        @media (max-width: 992px) {
+            .list-layout { flex-direction: column; }
+            .filter-sidebar { width: 100%; flex-basis: auto; position: static; }
+        }
+
+        /* 新闻标题列：加宽 + 长标题换行完整显示（与管理端一致）；标题点击新窗口打开新闻原文 */
+        .news-table th.col-title { min-width: 420px; }
+        .news-table td.title-cell { min-width: 320px; }
+        .news-table .title-cell a {
+            display: inline-block;
+            word-break: break-word;
+            line-height: 1.5;
+        }
+        /* 来源标签（a标签）：可点击，新窗口打开该新闻网官方网站；箭头仅可点击链接显示 */
+        .news-table a.source-tag { cursor: pointer; }
+        .news-table a.source-tag::after { content: " ↗"; font-size: 10px; }
+        @media (max-width: 1200px) { .news-table th.col-title { min-width: 300px; } }
+        @media (max-width: 576px)  { .news-table th.col-title { min-width: 200px; } }
+    </style>
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（用户端，含热点榜单入口） -->
+<div th:replace="~{fragments/nav :: navbar('list', true)}"></div>
+
+<div class="main-container container">
+
+    <!-- 浏览提示 -->
+    <div class="alert mb-3" style="background:#eef1ff; color:#5b6bd8; border:1px solid #d6dcfa;">
+        <span th:if="${isLoggedIn}">
+            <i class="bi bi-lightbulb"></i> 欢迎回来，<strong th:text="${loginUser.username}">用户</strong>。
+        </span>
+        <span th:unless="${isLoggedIn}">
+            <i class="bi bi-lightbulb"></i> 您正在以<strong>游客身份</strong>访问，新闻列表与新闻详情均可自由浏览。点击<strong>来源</strong>标签可跳转至对应新闻网官方网站；
+            <a th:href="@{/login}">登录</a>
+            后系统会记录您的浏览足迹。
+        </span>
+    </div>
+
+    <!-- 筛选表单：分类单选标签栏 + 左侧按日期分组的新闻表格 + 右侧多选筛选面板（与管理端一致） -->
+    <form id="filterForm" th:action="@{/client}" method="get">
+        <!-- 当前选中的新闻分类（单选：空值=全部分类） -->
+        <input type="hidden" name="categories" id="categoryInput"
+               th:value="${selectedCategories != null && !selectedCategories.isEmpty() ? selectedCategories[0] : ''}">
+
+        <!-- 分类单选标签栏（与管理端相同：全部 + 10个分类，点击即筛选） -->
+        <div class="category-tabs" id="categoryTabs" role="tablist" aria-label="新闻分类">
+            <button type="button" class="category-tab" data-cat=""
+                    th:classappend="${selectedCategories == null || selectedCategories.isEmpty()} ? 'active'">全部</button>
+            <button type="button" class="category-tab"
+                    th:each="c : ${categoryOptions}"
+                    th:text="${c}"
+                    th:attr="data-cat=${c}"
+                    th:classappend="${selectedCategories != null && selectedCategories.contains(c)} ? 'active'">财经</button>
+        </div>
+
+    <div class="list-layout">
+
+        <!-- 左侧：按日期分组的新闻表格 -->
+        <div class="list-main">
+
+            <!-- 无新闻空状态 -->
+            <div th:if="${#maps.isEmpty(groups)}" class="card">
+                <div class="card-body text-center text-muted py-5">
+                    <div style="font-size:46px;"><i class="bi bi-inbox"></i></div>
+                    <p class="mt-3 mb-1">暂无符合筛选条件的新闻</p>
+                    <p class="small">请调整筛选条件，或联系管理员在后台"爬虫管理"中启动新闻采集</p>
+                </div>
+            </div>
+
+            <!-- entry.key=日期LocalDate，entry.value=当天新闻列表（已按热度排序） -->
+            <div class="card date-card" th:each="entry : ${groups}">
+                <div class="card-header-date">
+                    <span class="d-main" th:text="${#temporals.format(entry.key, 'yyyy年MM月dd日')}">2026年09月21日</span>
+                    <span class="d-sub" th:text="${#temporals.format(entry.key, 'EEEE')}">星期一</span>
+                    <span class="d-sub" th:if="${entry.key.equals(today)}">（今天）</span>
+                    <span class="d-count" th:text="'共 ' + ${entry.value.size()} + ' 条'"></span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover news-table align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th width="60" class="text-center">序号</th>
+                            <th class="col-title">新闻标题</th>
+                            <th width="110">来源</th>
+                            <th width="80">分类</th>
+                            <th width="90">情感</th>
+                            <th width="90"><i class="bi bi-fire"></i>热度</th>
+                            <th width="110">发布时间</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="news, stat : ${entry.value}">
+                            <td class="text-center text-muted" th:text="${stat.count}">1</td>
+                            <td class="title-cell">
+                                <!-- 游客与登录用户均可点击标题：先到站内中转接口（登录用户顺带记录浏览日志），再新窗口打开新闻原文 -->
+                                <a th:if="${news.url != null and !news.url.isEmpty()}"
+                                   th:href="@{/client/news/view/{id}(id=${news.id})}" target="_blank" rel="noopener"
+                                   th:title="'打开原文：' + ${news.title}"
+                                   th:text="${news.title}">新闻标题</a>
+                                <span th:if="${news.url == null or news.url.isEmpty()}"
+                                      class="text-muted" th:text="${news.title}">新闻标题</span>
+                                <!-- TextRank 抽取式摘要：标题下方小字展示（截断至60字并单行省略，控制页面体积） -->
+                                <div class="news-summary text-muted small mt-1"
+                                     th:if="${news.summary != null and !news.summary.isEmpty()}"
+                                     th:text="${#strings.abbreviate(news.summary, 60)}"></div>
+                            </td>
+                            <td>
+                                <!-- 点击来源：新窗口跳转该新闻网官方网站（如搜狐新闻→news.sohu.com） -->
+                                <a th:if="${sourceHomeUrls[news.source] != null}"
+                                   class="source-tag"
+                                   th:href="${sourceHomeUrls[news.source]}"
+                                   target="_blank" rel="noopener"
+                                   th:title="'打开 ' + ${news.source} + ' 官网'"
+                                   th:text="${news.source}">来源</a>
+                                <span class="source-tag" style="cursor:default;"
+                                      th:if="${sourceHomeUrls[news.source] == null}"
+                                      th:text="${news.source != null and !news.source.isEmpty()} ? ${news.source} : '未知'">来源</span>
+                            </td>
+                            <td>
+                                <span class="category-tag"
+                                      th:text="${news.category != null ? news.category : '社会'}">社会</span>
+                            </td>
+                            <td>
+                                <span th:if="${news.sentiment == 1}" class="sentiment-pos">正面</span>
+                                <span th:if="${news.sentiment == 0}" class="sentiment-neu">中性</span>
+                                <span th:if="${news.sentiment == -1}" class="sentiment-neg">负面</span>
+                            </td>
+                            <td>
+                                <span class="hot-badge"
+                                      th:classappend="${news.hotScore >= 80} ? 'hot-hi' : (${news.hotScore >= 60} ? 'hot-mid' : '')"
+                                      th:text="${news.hotScore}">0</span>
+                            </td>
+                            <td th:text="${news.publishTime != null} ? ${#temporals.format(news.publishTime, 'HH:mm')} : '-'">12:00</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧筛选面板：来源多选 + 情感多选（勾选后点"应用筛选"提交，与管理端一致） -->
+        <aside class="filter-sidebar">
+            <div class="filter-sidebar-card">
+                <h6><i class="bi bi-search"></i> 批量筛选</h6>
+
+                <!-- 时间范围：默认全部时间（与管理端展示的新闻数量一致），也可缩小到最近 N 天 -->
+                <div class="filter-group-label">时间范围</div>
+                <select class="form-select form-select-sm" name="recentDays"
+                        onchange="document.getElementById('filterForm').submit()">
+                    <option value="0" th:selected="${selectedDays == 0}">全部时间</option>
+                    <option value="3" th:selected="${selectedDays == 3}">最近 3 天</option>
+                    <option value="7" th:selected="${selectedDays == 7}">最近 7 天</option>
+                    <option value="15" th:selected="${selectedDays == 15}">最近 15 天</option>
+                    <option value="30" th:selected="${selectedDays == 30}">最近 30 天</option>
+                </select>
+                <div class="text-muted small mt-1">默认展示全部已采集新闻，与管理端数量一致。</div>
+
+                <!-- 来源：可勾选单个或多个新闻网站 -->
+                <div class="filter-group-label">
+                    来源
+                    <span class="filter-count"
+                          th:if="${!#lists.isEmpty(selectedSources)}"
+                          th:text="${selectedSources.size()}">1</span>
+                </div>
+                <div class="filter-option-list">
+                    <label class="filter-opt" th:each="s : ${sourceOptions}">
+                        <input type="checkbox" class="form-check-input source-check"
+                               name="sources" th:value="${s.source}"
+                               th:checked="${selectedSources.contains(s.source)}">
+                        <span th:text="${s.source}">新浪新闻</span>
+                        <small th:text="${s.cnt}">5</small>
+                    </label>
+                </div>
+
+                <!-- 情感：可勾选一个或多个情感类型 -->
+                <div class="filter-group-label">
+                    情感
+                    <span class="filter-count"
+                          th:if="${!#lists.isEmpty(selectedSentiments)}"
+                          th:text="${selectedSentiments.size()}">1</span>
+                </div>
+                <div>
+                    <label class="filter-opt">
+                        <input type="checkbox" class="form-check-input sentiment-check"
+                               name="sentiments" value="1"
+                               th:checked="${selectedSentiments.contains(1)}"> 正面
+                    </label>
+                    <label class="filter-opt">
+                        <input type="checkbox" class="form-check-input sentiment-check"
+                               name="sentiments" value="0"
+                               th:checked="${selectedSentiments.contains(0)}"> 中性
+                    </label>
+                    <label class="filter-opt">
+                        <input type="checkbox" class="form-check-input sentiment-check"
+                               name="sentiments" value="-1"
+                               th:checked="${selectedSentiments.contains(-1)}"> 负面
+                    </label>
+                </div>
+
+                <div class="filter-sidebar-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">应用筛选</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            onclick="clearAllFilters()">清空</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+    </form>
+
+    <div class="portal-footer">
+        网络新闻分析系统 · 用户端 · 数据由网络爬虫自动采集，版权归原网站所有
+    </div>
+</div>
+
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+<script>
+// 清空全部筛选（分类标签恢复"全部" + 来源/情感取消勾选）并提交
+function clearAllFilters() {
+    document.querySelectorAll('.source-check, .sentiment-check').forEach(function (el) {
+        el.checked = false;
+    });
+    document.getElementById('categoryInput').value = '';
+    document.getElementById('filterForm').submit();
+}
+// 分类单选标签：事件委托读取 data-cat，点击后写入隐藏域并立即提交（该页未引入jQuery，使用原生JS）
+document.addEventListener('DOMContentLoaded', function () {
+    var tabBar = document.getElementById('categoryTabs');
+    if (tabBar) {
+        tabBar.addEventListener('click', function (e) {
+            var btn = e.target.closest('.category-tab');
+            if (!btn) return;
+            var category = btn.getAttribute('data-cat') || '';
+            var input = document.getElementById('categoryInput');
+            if (input.value === category) return; // 已选中该分类，无需刷新
+            input.value = category;
+            document.getElementById('filterForm').submit();
+        });
+    }
+});
+// 个人信息提交前校验：新密码非空时需至少6位
+document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('profileForm');
+    if (form) {
+        form.addEventListener('submit', function (e) {
+            var pwd = document.getElementById('newPassword').value;
+            if (pwd && pwd.length < 6) {
+                e.preventDefault();
+                alert('新密码至少需要6位');
+            }
+        });
+    }
+});
+</script>
+
+<!-- 个人信息修改模态框（仅登录用户渲染，避免游客 loginUser 为 null 导致模板解析异常） -->
+<div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profileModalLabel" aria-hidden="true"
+     th:if="${isLoggedIn}">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form id="profileForm" th:action="@{/user/profile}" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="profileModalLabel"><i class="bi bi-gear"></i> 修改个人信息</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" class="form-control" th:value="${loginUser.username}" disabled>
+                        <div class="form-text">用户名不可修改</div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">年龄</label>
+                            <input type="number" name="age" class="form-control" min="0" max="150"
+                                   th:value="${loginUser.age}" placeholder="选填">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">性别</label>
+                            <select name="gender" class="form-select">
+                                <option value="1" th:selected="${loginUser.gender == null or loginUser.gender == 1}">男</option>
+                                <option value="2" th:selected="${loginUser.gender != null and loginUser.gender == 2}">女</option>
+                                <option value="0" th:selected="${loginUser.gender != null and loginUser.gender == 0}">保密</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">职业</label>
+                        <input type="text" name="occupation" class="form-control" maxlength="50"
+                               th:value="${loginUser.occupation}" placeholder="如：学生、工程师、教师（选填）">
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label">新密码</label>
+                        <input type="password" id="newPassword" name="newPassword" class="form-control"
+                               placeholder="留空表示不修改密码（至少6位）">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

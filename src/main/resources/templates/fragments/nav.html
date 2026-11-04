@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<!--
+  统一导航栏 Fragment（管理端/用户端共用，消除各页面导航项漂移）
+  参数：
+    active     : 当前激活项，取值 list / crawler / analysis / cluster / user / stats / hot
+    clientMode : true=用户端导航，false=管理端导航
+  上下文依赖：loginUser（可为 null）、isLoggedIn（用户端）
+  默认参数：未传 clientMode 时按管理端渲染
+-->
+<nav th:fragment="navbar(active, clientMode)"
+     class="navbar navbar-expand-lg navbar-dark app-navbar">
+    <div class="container nav-container">
+        <a class="navbar-brand" th:href="${clientMode} ? @{/client} : @{/index}">
+            <i class="bi bi-newspaper"></i> 网络新闻分析系统
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+                aria-controls="mainNav" aria-expanded="false" aria-label="切换导航">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav me-auto">
+                <!-- ========== 用户端导航 ========== -->
+                <th:block th:if="${clientMode}">
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'list'} ? 'active'"
+                           th:href="@{/client}">新闻浏览</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'hot'} ? 'active'"
+                           th:href="@{/client/hot}">热点榜单</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'analysis'} ? 'active'"
+                           th:href="@{/client/analysis}">数据分析</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'cluster'} ? 'active'"
+                           th:href="@{/client/clusters}">事件聚类</a>
+                    </li>
+                </th:block>
+
+                <!-- ========== 管理端导航 ========== -->
+                <th:block th:unless="${clientMode}">
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'list'} ? 'active'"
+                           th:href="@{/index}">新闻列表</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'crawler'} ? 'active'"
+                           th:href="@{/crawler/manage}">爬虫管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'analysis'} ? 'active'"
+                           th:href="@{/analysis/view}">数据分析</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'cluster'} ? 'active'"
+                           th:href="@{/analysis/cluster/view}">事件聚类</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'user'} ? 'active'"
+                           th:href="@{/admin/users}">用户管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:classappend="${active == 'stats'} ? 'active'"
+                           th:href="@{/analysis/user/view}">用户统计</a>
+                    </li>
+                </th:block>
+            </ul>
+
+            <!-- ========== 右侧用户区：管理端 ========== -->
+            <div class="text-white" th:unless="${clientMode}">
+                <span th:if="${loginUser != null}">
+                    <i class="bi bi-person-circle"></i> <span th:text="${loginUser.username}">管理员</span>
+                </span>
+                <span th:if="${loginUser == null}">欢迎您，管理员</span>
+                <a th:href="@{/admin/logout}" class="btn btn-sm btn-outline-light ms-3">退出登录</a>
+            </div>
+
+            <!-- ========== 右侧用户区：用户端 ========== -->
+            <div class="text-white" th:if="${clientMode}">
+                <th:block th:if="${isLoggedIn}">
+                    <!-- 仅新闻列表页定义了 #profileModal，其他页面展示静态用户名，避免弹窗目标不存在 -->
+                    <a th:if="${active == 'list'}" href="#" class="user-name-btn"
+                       data-bs-toggle="modal" data-bs-target="#profileModal"
+                       style="color:#fff; text-decoration:none; cursor:pointer;">
+                        <i class="bi bi-person-circle"></i> <span th:text="${loginUser.username}">用户名</span>
+                        <i class="bi bi-gear"></i>
+                    </a>
+                    <span th:unless="${active == 'list'}">
+                        <i class="bi bi-person-circle"></i> <span th:text="${loginUser.username}">用户名</span>
+                    </span>
+                    <a th:href="@{/user/logout}" class="btn btn-sm btn-outline-light ms-3">退出登录</a>
+                </th:block>
+                <th:block th:unless="${isLoggedIn}">
+                    <span><i class="bi bi-person-circle"></i> 游客身份访问（免登录）</span>
+                    <a th:href="@{/login}" class="btn btn-sm btn-outline-light ms-3">登录</a>
+                    <a th:href="@{/user/register}" class="btn btn-sm btn-light ms-2">注册</a>
+                </th:block>
+            </div>
+        </div>
+    </div>
+</nav>
+
+</body>
+</html>

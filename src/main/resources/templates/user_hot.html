@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>今日热点排行榜 - 网络新闻分析系统</title>
+    <link th:href="@{/lib/bootstrap/bootstrap.min.css}" rel="stylesheet">
+    <link th:href="@{/lib/bootstrap-icons/bootstrap-icons.min.css}" rel="stylesheet">
+    <link th:href="@{/css/style.css(v='20261024')}" rel="stylesheet">
+    <link th:href="@{/css/theme.css(v='20261104')}" rel="stylesheet">
+    <style>
+        /* 排名徽标配色、页脚等由 theme.css 接管，此处仅保留本页布局 */
+        .rank-no {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            line-height: 24px;
+            text-align: center;
+        }
+
+        /* 新闻标题列：加宽 + 长标题换行完整显示（与管理端一致） */
+        .news-table th.col-title { min-width: 520px; }
+        .news-table td.title-cell { min-width: 360px; }
+        .news-table .title-cell a {
+            display: inline-block;
+            word-break: break-word;
+            line-height: 1.5;
+        }
+        @media (max-width: 1200px) { .news-table th.col-title { min-width: 340px; } }
+        @media (max-width: 576px)  { .news-table th.col-title { min-width: 220px; } }
+    </style>
+</head>
+<body>
+
+<!-- 顶部导航：统一 Fragment（用户端） -->
+<div th:replace="~{fragments/nav :: navbar('hot', true)}"></div>
+
+<div class="main-container container">
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">
+                <i class="bi bi-trophy"></i> <span th:text="${hotSource != null and !hotSource.isEmpty()} ? ${hotSource} : '全站'">全站</span> · 今日热点排行榜
+            </h5>
+            <div class="text-muted small mb-0">
+                <i class="bi bi-person-circle"></i> 游客免登录浏览 ·
+                <span th:if="${!fallback}" th:text="'统计日期：' + ${#temporals.format(requestDate, 'yyyy年MM月dd日')}">统计日期：2026年09月21日</span>
+                <span th:if="${fallback and actualDate != null}"
+                      th:with="scope=${(hotSource != null and !hotSource.isEmpty()) ? '该网' : '全站'}"
+                      th:text="'当日暂无数据，以下为' + ${scope} + '最新热点（' + ${#temporals.format(actualDate, 'yyyy年MM月dd日')} + '）'">当日暂无数据，以下为最新热点</span>
+                <span class="ms-2">· 点击新闻标题或"打开原文"在新窗口打开爬取的新闻原文网站</span>
+            </div>
+
+            <!-- 数据范围切换：默认全站聚合，可只看某个新闻网 -->
+            <div class="mt-3" th:if="${!#lists.isEmpty(sourceList)}">
+                <span class="text-muted small me-2">数据范围：</span>
+                <!-- 全部：不传 source 参数，走全站聚合 -->
+                <a th:href="@{/client/hot}"
+                   class="btn btn-sm"
+                   th:classappend="${hotSource == null or hotSource.isEmpty()} ? 'btn-primary' : 'btn-outline-secondary'">
+                    <i class="bi bi-collection"></i> 全部站点
+                </a>
+                <a th:each="s : ${sourceList}"
+                   th:href="@{/client/hot(source=${s.source})}"
+                   class="btn btn-sm"
+                   th:classappend="${s.source == hotSource} ? 'btn-primary' : 'btn-outline-secondary'"
+                   th:text="${s.source}">新浪新闻</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 榜单为空提示 -->
+    <div th:if="${#lists.isEmpty(hotList)}" class="card">
+        <div class="card-body text-center text-muted py-5">
+            <div style="font-size:46px;"><i class="bi bi-search"></i></div>
+            <p class="mt-3 mb-1"
+               th:text="${hotSource != null and !hotSource.isEmpty()} ? '该新闻网暂无新闻数据' : '系统暂无新闻数据'">
+                该新闻网暂无新闻数据
+            </p>
+            <a th:href="@{/client}" class="btn btn-primary btn-sm mt-2">← 返回新闻浏览</a>
+        </div>
+    </div>
+
+    <!-- 热点榜单表格：按热度倒序，点击新窗口打开原文 -->
+    <div class="card" th:if="${!#lists.isEmpty(hotList)}">
+        <div class="table-responsive">
+            <table class="table table-hover news-table align-middle mb-0">
+                <thead>
+                <tr>
+                    <th width="70" class="text-center">排名</th>
+                    <th class="col-title">新闻标题</th>
+                    <th width="90">情感</th>
+                    <th width="90"><i class="bi bi-fire"></i>热度</th>
+                    <th width="150">发布时间</th>
+                    <th width="130" class="text-center">操作</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="news, stat : ${hotList}">
+                    <td class="text-center">
+                        <span class="rank-no"
+                              th:classappend="${stat.count == 1} ? 'top1' : (${stat.count == 2} ? 'top2' : (${stat.count == 3} ? 'top3' : ''))"
+                              th:text="${stat.count}">1</span>
+                    </td>
+                    <td class="title-cell">
+                        <a th:href="${news.url}" target="_blank" rel="noopener"
+                           th:title="'打开原文：' + ${news.title}"
+                           th:text="${news.title}">新闻标题</a>
+                    </td>
+                    <td>
+                        <span th:if="${news.sentiment == 1}" class="sentiment-pos">正面</span>
+                        <span th:if="${news.sentiment == 0}" class="sentiment-neu">中性</span>
+                        <span th:if="${news.sentiment == -1}" class="sentiment-neg">负面</span>
+                    </td>
+                    <td>
+                        <span class="hot-badge"
+                              th:classappend="${news.hotScore >= 80} ? 'hot-hi' : (${news.hotScore >= 60} ? 'hot-mid' : '')"
+                              th:text="${news.hotScore}">0</span>
+                    </td>
+                    <td th:text="${news.publishTime != null} ? ${#temporals.format(news.publishTime, 'MM-dd HH:mm')} : '-'">09-21 12:00</td>
+                    <td class="text-center">
+                        <a th:href="${news.url}" target="_blank" rel="noopener"
+                           class="btn-link-open">打开原文</a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="text-center mt-3" th:if="${!#lists.isEmpty(hotList)}">
+        <a th:href="@{/client}" class="btn btn-outline-secondary btn-sm">← 返回新闻浏览</a>
+    </div>
+
+    <div class="hot-footer">
+        网络新闻分析系统 · 用户端 · 点击榜单条目将在新窗口打开新闻原文网站
+    </div>
+</div>
+
+<script th:src="@{/lib/bootstrap/bootstrap.bundle.min.js}"></script>
+</body>
+</html>
